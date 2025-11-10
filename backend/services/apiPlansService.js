@@ -158,17 +158,88 @@ class ApiPlansService {
   }
 
   /**
+   * Fetch OpenAI models dynamically from API
+   */
+  static async fetchOpenAIModels(apiKey = null) {
+    const models = { ...DEFAULT_PLANS.openai };
+    
+    // If no API key provided, return defaults
+    if (!apiKey) {
+      return models;
+    }
+
+    try {
+      // Fetch available models from OpenAI API
+      const response = await axios.get('https://api.openai.com/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+
+      // Parse models and extract GPT models
+      const availableModels = response.data.data || [];
+      const gptModels = availableModels
+        .filter(m => m.id && (m.id.startsWith('gpt-') || m.id.includes('gpt')))
+        .map(m => m.id)
+        .sort();
+
+      console.log(`📋 Found ${gptModels.length} OpenAI models via API:`, gptModels);
+
+      // Update models based on what's available
+      // Check for GPT-5
+      if (gptModels.some(m => m.includes('gpt-5') || m.includes('gpt5'))) {
+        const gpt5Model = gptModels.find(m => m.includes('gpt-5') || m.includes('gpt5'));
+        models.gpt5 = {
+          name: 'GPT-5',
+          contextWindow: 200000, // Estimated - update when official specs available
+          tokensPerMinute: 300000, // Estimated
+          requestsPerMinute: 10000, // Estimated
+          inputCost: 0.005, // Estimated - update when official pricing available
+          outputCost: 0.015, // Estimated
+          supportsGlossary: false,
+          supportsHtml: false,
+          modelId: gpt5Model
+        };
+      }
+
+      // Check for GPT-4o-mini
+      if (gptModels.some(m => m.includes('gpt-4o-mini'))) {
+        models.gpt4omini = {
+          name: 'GPT-4o Mini',
+          contextWindow: 128000,
+          tokensPerMinute: 200000,
+          requestsPerMinute: 5000,
+          inputCost: 0.00015,
+          outputCost: 0.0006,
+          supportsGlossary: false,
+          supportsHtml: false
+        };
+      }
+
+    } catch (error) {
+      console.warn('⚠️  Failed to fetch OpenAI models from API:', error.message);
+      // Return defaults on error
+    }
+
+    return models;
+  }
+
+  /**
    * Fetch API plan information from websites
    * This is a placeholder - in production, you might scrape or use official APIs
    */
-  static async fetchApiPlans() {
-    // For now, return defaults
-    // In the future, could fetch from:
-    // - DeepL API pricing page
-    // - OpenAI pricing page
-    // - Google Cloud pricing page
-    
+  static async fetchApiPlans(openaiApiKey = null) {
     const plans = { ...DEFAULT_PLANS };
+    
+    // Fetch OpenAI models dynamically if API key is provided
+    if (openaiApiKey) {
+      try {
+        plans.openai = await this.fetchOpenAIModels(openaiApiKey);
+        console.log('✅ OpenAI models fetched dynamically');
+      } catch (error) {
+        console.warn('⚠️  Failed to fetch OpenAI models:', error.message);
+      }
+    }
     
     // Try to fetch updated information (placeholder for future implementation)
     // For now, we'll use the defaults which are based on current documentation
