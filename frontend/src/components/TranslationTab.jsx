@@ -241,10 +241,15 @@ function TranslationTab({ settings }) {
     setConnectionTestResult(null);
 
     try {
+      const apiOptions = { ...(settings[`${apiProvider}_options`] || {}) };
+      if (apiProvider === 'openai' || apiProvider === 'chatgpt') {
+        apiOptions.model = openaiModel || settings.openai_model || 'gpt-3.5-turbo';
+      }
+      
       const response = await axios.post(`${API_URL}/api/settings/test-api`, {
         provider: apiProvider,
         apiKey,
-        options: settings[`${apiProvider}_options`] || {}
+        options: apiOptions
       });
 
       setConnectionTestResult({
@@ -335,9 +340,14 @@ function TranslationTab({ settings }) {
 
   const handleRetry = async (jobId) => {
     try {
+      const apiOptions = { ...(settings[`${apiProvider}_options`] || {}) };
+      if (apiProvider === 'openai' || apiProvider === 'chatgpt') {
+        apiOptions.model = openaiModel || settings.openai_model || 'gpt-3.5-turbo';
+      }
+      
       await axios.post(`${API_URL}/api/translation/retry/${jobId}`, {
         apiKey,
-        apiOptions: settings[`${apiProvider}_options`] || {}
+        apiOptions
       });
       setCurrentJob(jobId);
       pollProgress(jobId);
