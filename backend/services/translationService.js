@@ -76,7 +76,14 @@ class TranslationService {
 
   async translateWithOpenAI(text, sourceLang, targetLang, glossaryTerms = []) {
     try {
-      let prompt = `Translate the following text from ${sourceLang} to ${targetLang}. Maintain the original formatting and structure.\n\n`;
+      let prompt = `Translate the following text from ${sourceLang} to ${targetLang}. 
+
+IMPORTANT: Preserve ALL formatting exactly as it appears:
+- Keep all line breaks and paragraph spacing
+- Preserve bullet points, dashes, and special characters
+- Maintain spacing between words and sentences
+- Keep email addresses, phone numbers, and URLs unchanged
+- Preserve any special formatting characters\n\n`;
       
       if (glossaryTerms.length > 0) {
         prompt += `Use these glossary terms:\n`;
@@ -86,14 +93,14 @@ class TranslationService {
         prompt += '\n';
       }
       
-      prompt += `Text to translate:\n${text}`;
+      prompt += `Text to translate (preserve formatting exactly):\n${text}`;
 
       const response = await this.openai.chat.completions.create({
         model: this.options.model || 'gpt-3.5-turbo',
         messages: [
           {
             role: 'system',
-            content: 'You are a professional translator. Translate the text accurately while preserving formatting and structure.'
+            content: 'You are a professional translator. Translate the text accurately while preserving ALL formatting exactly as it appears, including line breaks, paragraph spacing, special characters, email addresses, phone numbers, and URLs. Do not modify the structure or formatting of the original text.'
           },
           {
             role: 'user',
@@ -132,8 +139,10 @@ class TranslationService {
         const errorMessage = error.message || '';
         let rateLimitMessage = 'Rate limit exceeded. Please wait before retrying.';
         
-        // Check for specific rate limit types
-        if (errorMessage.includes('requests per minute') || errorMessage.includes('RPM')) {
+        // Check for quota/billing issues
+        if (errorMessage.includes('quota') || errorMessage.includes('billing') || error.code === 'insufficient_quota') {
+          rateLimitMessage = 'You have exceeded your OpenAI quota or billing limit. Please check your OpenAI account billing and add credits. Visit: https://platform.openai.com/account/billing';
+        } else if (errorMessage.includes('requests per minute') || errorMessage.includes('RPM')) {
           rateLimitMessage = 'Rate limit exceeded: Too many requests per minute. Please wait 1-2 minutes before retrying.';
         } else if (errorMessage.includes('tokens per minute') || errorMessage.includes('TPM')) {
           rateLimitMessage = 'Rate limit exceeded: Token limit reached. Please wait a few minutes before retrying.';
@@ -164,8 +173,18 @@ class TranslationService {
 
   async translateWithGoogle(text, sourceLang, targetLang, glossaryTerms = []) {
     try {
+      // NOTE: Google Translate free API may lose some formatting (line breaks, spacing)
+      // For better formatting preservation, use DeepL or ChatGPT
+      
+      // Preserve line breaks by replacing them with a marker before translation
+      const lineBreakMarker = '___LINEBREAK___';
+      const doubleLineBreakMarker = '___PARAGRAPH___';
+      const preservedText = text
+        .replace(/\n\n+/g, doubleLineBreakMarker)
+        .replace(/\n/g, lineBreakMarker);
+      
       // Apply glossary replacements before translation
-      let preprocessedText = text;
+      let preprocessedText = preservedText;
       const glossaryMap = new Map();
       
       for (let i = 0; i < glossaryTerms.length; i++) {
@@ -183,6 +202,11 @@ class TranslationService {
       });
 
       let translatedText = result.text;
+      
+      // Restore line breaks
+      translatedText = translatedText
+        .replace(new RegExp(doubleLineBreakMarker, 'g'), '\n\n')
+        .replace(new RegExp(lineBreakMarker, 'g'), '\n');
       
       // Apply glossary replacements after translation
       for (const [placeholder, targetTerm] of glossaryMap.entries()) {
