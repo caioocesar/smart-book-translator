@@ -15,6 +15,26 @@ A powerful desktop application for translating documents (EPUB, DOCX, PDF) using
 
 **You are responsible for complying with all applicable laws and respecting copyright holders' rights.**
 
+## 🔒 Privacy & Local Storage
+
+**Your data stays on your computer:**
+
+- ✅ **100% Local Storage**: All translations, settings, and API keys are stored in an SQLite database on your device
+- ✅ **No Cloud Sync**: Your documents never leave your computer (except when sent to translation APIs you configure)
+- ✅ **No Telemetry**: We don't track usage, collect analytics, or send any data to external servers
+- ✅ **Encrypted Keys**: API keys are encrypted with AES-256 before storage
+- ✅ **Full Control**: You can delete all data by removing the database file at any time
+
+**Data Location:**
+- Database: `backend/database/translations.db`
+- Uploads: `backend/uploads/`
+- Outputs: `backend/outputs/`
+
+**What gets sent to external services:**
+- Only the text chunks you choose to translate are sent to your selected translation API (DeepL, OpenAI, or Google)
+- API keys are transmitted directly to the respective services for authentication
+- No other data leaves your computer
+
 ## 🔐 Security Features
 
 **NEW in v1.0.0**: Enhanced security for your API keys!

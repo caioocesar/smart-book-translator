@@ -330,5 +330,69 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
   }
 }
 
+// Get chunks for a job
+router.get('/chunks/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const chunks = TranslationChunk.getByJob(jobId);
+    res.json(chunks);
+  } catch (error) {
+    console.error('Error fetching chunks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate final document from completed chunks
+router.post('/generate/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Check if all chunks are completed
+    if (job.completed_chunks !== job.total_chunks || job.failed_chunks > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot generate document: not all chunks are completed successfully',
+        completed: job.completed_chunks,
+        total: job.total_chunks,
+        failed: job.failed_chunks
+      });
+    }
+
+    // Get all chunks
+    const chunks = TranslationChunk.getByJob(jobId);
+    const translatedTexts = chunks.map(c => c.translated_text);
+    const combinedText = translatedTexts.join('\n\n');
+
+    // Build the output document
+    const outputsDir = path.join(__dirname, '..', 'outputs');
+    if (!fs.existsSync(outputsDir)) {
+      fs.mkdirSync(outputsDir, { recursive: true });
+    }
+
+    const outputFilename = `translated_${job.filename}`;
+    const outputPath = path.join(outputsDir, outputFilename);
+
+    // Use DocumentBuilder to create the output file
+    const builder = new DocumentBuilder();
+    await builder.build(combinedText, job.output_format, outputPath);
+
+    // Update job status
+    TranslationJob.updateStatus(jobId, 'completed');
+
+    res.json({ 
+      success: true, 
+      outputPath,
+      message: 'Document generated successfully'
+    });
+  } catch (error) {
+    console.error('Error generating document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
 

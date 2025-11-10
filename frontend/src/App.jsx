@@ -13,6 +13,8 @@ function App() {
   const [settings, setSettings] = useState({});
   const [apiStatus, setApiStatus] = useState(null);
   const [showSystemStatus, setShowSystemStatus] = useState(false);
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
+  const [hasReadyTranslation, setHasReadyTranslation] = useState(false);
 
   useEffect(() => {
     // Test backend connection
@@ -25,7 +27,32 @@ function App() {
         console.error('Error connecting to backend:', err);
         setApiStatus({ status: 'error', message: 'Backend not connected' });
       });
+
+    // Show privacy notice on first visit
+    const hasSeenNotice = localStorage.getItem('hasSeenPrivacyNotice');
+    if (!hasSeenNotice) {
+      setShowPrivacyNotice(true);
+    }
+
+    // Check for ready translations
+    checkForReadyTranslations();
   }, []);
+
+  const checkForReadyTranslations = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/translation/jobs`);
+      const jobs = await response.json();
+      const hasCompleted = jobs.some(job => job.status === 'completed' && !job.downloaded);
+      setHasReadyTranslation(hasCompleted);
+    } catch (err) {
+      console.error('Error checking translations:', err);
+    }
+  };
+
+  const handlePrivacyAccept = () => {
+    localStorage.setItem('hasSeenPrivacyNotice', 'true');
+    setShowPrivacyNotice(false);
+  };
 
   const handleSettingsUpdate = (newSettings) => {
     setSettings(newSettings);
@@ -69,6 +96,7 @@ function App() {
             onClick={() => setActiveTab('history')}
           >
             📋 History
+            {hasReadyTranslation && <span className="notification-badge">●</span>}
           </button>
           <button
             className={`tab ${activeTab === 'glossary' ? 'active' : ''}`}
@@ -86,7 +114,7 @@ function App() {
 
         <div className="tab-content">
           {activeTab === 'translation' && <TranslationTab settings={settings} />}
-          {activeTab === 'history' && <HistoryTab settings={settings} />}
+          {activeTab === 'history' && <HistoryTab settings={settings} onTranslationReady={checkForReadyTranslations} />}
           {activeTab === 'glossary' && <GlossaryTab />}
           {activeTab === 'settings' && <SettingsTab onSettingsUpdate={handleSettingsUpdate} />}
         </div>
@@ -96,12 +124,68 @@ function App() {
         <div className="footer-content">
           <p className="copyright-notice">
             ⚠️ <strong>Important:</strong> This program is for personal translation use only. 
+            All translations are stored locally on your device. 
             Do not use for commercial purposes or copyright infringement. 
             Respect intellectual property rights and applicable laws.
+            <button onClick={() => setShowPrivacyNotice(true)} className="btn-link">
+              Learn more
+            </button>
           </p>
           <p className="version">v1.0.0 | Made with ❤️ for personal use</p>
         </div>
       </footer>
+
+      {/* Privacy Notice Modal */}
+      {showPrivacyNotice && (
+        <div className="modal-overlay" onClick={handlePrivacyAccept}>
+          <div className="modal-content privacy-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>🔒 Privacy & Legal Notice</h2>
+            
+            <div className="privacy-content">
+              <h3>📍 Local Storage & Privacy</h3>
+              <ul>
+                <li>✅ <strong>All data is stored locally</strong> on your device in an SQLite database</li>
+                <li>✅ <strong>No cloud storage</strong> - your documents never leave your computer</li>
+                <li>✅ <strong>API keys are encrypted</strong> using AES-256 encryption</li>
+                <li>✅ <strong>No tracking or analytics</strong> - complete privacy</li>
+                <li>✅ <strong>No internet access</strong> except when calling translation APIs you configure</li>
+              </ul>
+
+              <h3>⚖️ Legal & Copyright</h3>
+              <ul>
+                <li>⚠️ This software is <strong>for personal use only</strong></li>
+                <li>⚠️ You are responsible for ensuring you have the right to translate documents</li>
+                <li>⚠️ Do not use for commercial purposes without proper licenses</li>
+                <li>⚠️ Respect copyright laws and intellectual property rights</li>
+                <li>⚠️ Do not translate copyrighted material without permission</li>
+                <li>⚠️ Do not circumvent DRM or access controls</li>
+              </ul>
+
+              <h3>🔑 API Usage</h3>
+              <ul>
+                <li>🌐 Translation APIs (DeepL, OpenAI, Google) have their own terms of service</li>
+                <li>💰 You are responsible for any API costs incurred</li>
+                <li>📊 Monitor your API usage to avoid unexpected charges</li>
+                <li>🔐 Keep your API keys secure and never share them</li>
+              </ul>
+
+              <div className="privacy-footer">
+                <strong>By using this software, you agree to:</strong>
+                <ul>
+                  <li>Use it responsibly and legally</li>
+                  <li>Respect copyright and intellectual property</li>
+                  <li>Only translate content you have permission to translate</li>
+                  <li>Accept responsibility for your API usage and costs</li>
+                </ul>
+              </div>
+            </div>
+
+            <button onClick={handlePrivacyAccept} className="btn-primary btn-large">
+              I Understand & Accept
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

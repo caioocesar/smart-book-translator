@@ -49,6 +49,25 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 
+// Check if port is available
+async function checkPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = require('net').createServer();
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(false);
+      } else {
+        resolve(true);
+      }
+    });
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    server.listen(port);
+  });
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -95,17 +114,33 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// Start server
-httpServer.listen(PORT, async () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-  console.log('Database initialized');
-  console.log('WebSocket server ready');
+// Start server with port check
+async function startServer() {
+  const isPortAvailable = await checkPortAvailable(PORT);
   
-  // Run startup tests
-  await runStartupTests();
-  
-  console.log('🎉 Smart Book Translator is ready!');
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-  console.log('\n');
-});
+  if (!isPortAvailable) {
+    console.error(`❌ ERROR: Port ${PORT} is already in use!`);
+    console.error(`Please either:`);
+    console.error(`  1. Stop the process using port ${PORT}`);
+    console.error(`  2. Set a different port: export PORT=5001`);
+    console.error(`  3. On Linux: sudo lsof -ti:${PORT} | xargs kill -9`);
+    console.error(`     On Windows: netstat -ano | findstr :${PORT}, then taskkill /PID <PID> /F`);
+    process.exit(1);
+  }
+
+  httpServer.listen(PORT, async () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log('Database initialized');
+    console.log('WebSocket server ready');
+    
+    // Run startup tests
+    await runStartupTests();
+    
+    console.log('🎉 Smart Book Translator is ready!');
+    console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+    console.log('\n');
+  });
+}
+
+startServer();
 

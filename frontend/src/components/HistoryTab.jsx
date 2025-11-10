@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-function HistoryTab({ settings }) {
+function HistoryTab({ settings, onTranslationReady }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -15,6 +15,9 @@ function HistoryTab({ settings }) {
     fromBeginning: false
   });
   const [showRetryModal, setShowRetryModal] = useState(false);
+  const [expandedJob, setExpandedJob] = useState(null);
+  const [jobChunks, setJobChunks] = useState({});
+  const [generatingDocument, setGeneratingDocument] = useState(null);
 
   useEffect(() => {
     loadJobs();
@@ -28,11 +31,39 @@ function HistoryTab({ settings }) {
       const response = await axios.get(`${API_URL}/api/translation/jobs`);
       setJobs(response.data);
       setError('');
+      
+      // Notify parent if there are ready translations
+      if (onTranslationReady) {
+        const hasCompleted = response.data.some(job => job.status === 'completed');
+        if (hasCompleted) {
+          onTranslationReady();
+        }
+      }
     } catch (err) {
       setError('Failed to load translation history');
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadJobChunks = async (jobId) => {
+    try {
+      const response = await axios.get(`${API_URL}/api/translation/chunks/${jobId}`);
+      setJobChunks(prev => ({ ...prev, [jobId]: response.data }));
+    } catch (err) {
+      console.error('Failed to load chunks:', err);
+    }
+  };
+
+  const toggleJobExpand = (jobId) => {
+    if (expandedJob === jobId) {
+      setExpandedJob(null);
+    } else {
+      setExpandedJob(jobId);
+      if (!jobChunks[jobId]) {
+        loadJobChunks(jobId);
+      }
     }
   };
 
@@ -97,6 +128,20 @@ function HistoryTab({ settings }) {
     }
   };
 
+  const handleGenerateDocument = async (jobId) => {
+    setGeneratingDocument(jobId);
+    try {
+      const response = await axios.post(`${API_URL}/api/translation/generate/${jobId}`);
+      setError('');
+      alert('Document generated successfully!');
+      loadJobs();
+    } catch (err) {
+      setError(`Failed to generate document: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setGeneratingDocument(null);
+    }
+  };
+
   const getStatusColor = (status) => {
     const colors = {
       pending: '#ffc107',
@@ -117,6 +162,30 @@ function HistoryTab({ settings }) {
     if (job.status !== 'completed') return null;
     const outputDir = settings.outputDirectory || 'backend/outputs';
     return `${outputDir}/translated_${job.filename}`;
+  };
+
+  const getChunkStatusColor = (status) => {
+    const colors = {
+      pending: '#ffc107',
+      translating: '#17a2b8',
+      completed: '#28a745',
+      failed: '#dc3545'
+    };
+    return colors[status] || '#6c757d';
+  };
+
+  const getChunkStatusIcon = (status) => {
+    const icons = {
+      pending: '⏳',
+      translating: '🔄',
+      completed: '✅',
+      failed: '❌'
+    };
+    return icons[status] || '●';
+  };
+
+  const canGenerateDocument = (job) => {
+    return job.completed_chunks === job.total_chunks && job.failed_chunks === 0;
   };
 
   if (loading && jobs.length === 0) {
@@ -218,6 +287,17 @@ function HistoryTab({ settings }) {
 
                 {/* Action Buttons */}
                 <div className="job-actions-vertical">
+                  {canGenerateDocument(job) && job.status !== 'completed' && (
+                    <button 
+                      onClick={() => handleGenerateDocument(job.id)}
+                      className="btn-small btn-success"
+                      disabled={generatingDocument === job.id}
+                      title="Generate final translated document"
+                    >
+                      {generatingDocument === job.id ? '⏳ Generating...' : '📄 Generate Document'}
+                    </button>
+                  )}
+
                   {job.status === 'completed' && (
                     <button 
                       onClick={() => handleDownload(job.id)}
@@ -256,6 +336,14 @@ function HistoryTab({ settings }) {
                   )}
 
                   <button 
+                    onClick={() => toggleJobExpand(job.id)}
+                    className="btn-small btn-info"
+                    title="View chunk details"
+                  >
+                    {expandedJob === job.id ? '🔼 Hide Details' : '🔽 Show Details'}
+                  </button>
+
+                  <button 
                     onClick={() => handleDelete(job.id)}
                     className="btn-small btn-danger"
                     title="Delete this job"
@@ -264,6 +352,64 @@ function HistoryTab({ settings }) {
                   </button>
                 </div>
               </div>
+
+              {/* Chunk Details */}
+              {expandedJob === job.id && (
+                <div className="chunks-details">
+                  <h4>📦 Translation Chunks ({job.total_chunks} total)</h4>
+                  {!jobChunks[job.id] ? (
+                    <p className="loading-message">Loading chunks...</p>
+                  ) : (
+                    <div className="chunks-grid">
+                      {jobChunks[job.id].map(chunk => (
+                        <div 
+                          key={chunk.id} 
+                          className="chunk-item"
+                          style={{ borderLeftColor: getChunkStatusColor(chunk.status) }}
+                        >
+                          <div className="chunk-header">
+                            <span 
+                              className="chunk-status-icon"
+                              style={{ color: getChunkStatusColor(chunk.status) }}
+                            >
+                              {getChunkStatusIcon(chunk.status)}
+                            </span>
+                            <strong>Chunk #{chunk.chunk_index + 1}</strong>
+                            <span 
+                              className="chunk-status-badge"
+                              style={{ backgroundColor: getChunkStatusColor(chunk.status) }}
+                            >
+                              {chunk.status.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="chunk-preview">
+                            <div className="chunk-text">
+                              <label>Source:</label>
+                              <p>{chunk.source_text?.substring(0, 100)}...</p>
+                            </div>
+                            {chunk.translated_text && (
+                              <div className="chunk-text">
+                                <label>Translation:</label>
+                                <p>{chunk.translated_text.substring(0, 100)}...</p>
+                              </div>
+                            )}
+                            {chunk.error_message && (
+                              <div className="chunk-error">
+                                <strong>Error:</strong> {chunk.error_message}
+                              </div>
+                            )}
+                          </div>
+                          {chunk.retry_count > 0 && (
+                            <div className="chunk-retry-count">
+                              Retries: {chunk.retry_count}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -329,4 +475,5 @@ function HistoryTab({ settings }) {
 }
 
 export default HistoryTab;
+
 

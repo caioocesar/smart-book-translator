@@ -186,31 +186,79 @@ class TranslationService {
 
   async checkLimits() {
     const usage = ApiUsage.getUsageToday(this.provider);
-    
-    // Define limits per provider (these are example limits, adjust based on your API plan)
-    const limits = {
-      deepl: {
-        charactersPerMonth: 500000,
-        requestsPerMinute: 20
-      },
-      openai: {
-        tokensPerMinute: 90000,
-        requestsPerMinute: 3500
-      },
-      google: {
-        note: 'Free API - subject to rate limiting by Google',
-        requestsPerMinute: 'unlimited (but may be blocked)',
-        warning: 'Not suitable for large-scale commercial use'
-      }
-    };
+    let apiLimits = {};
+    let userSpecific = false;
 
-    const providerLimits = limits[this.provider.toLowerCase()];
-    
+    try {
+      // Try to fetch user-specific limits from the APIs
+      if (this.provider.toLowerCase() === 'deepl') {
+        // DeepL API - fetch usage from API
+        try {
+          const response = await axios.get('https://api-free.deepl.com/v2/usage', {
+            params: { auth_key: this.apiKey }
+          });
+          apiLimits = {
+            charactersUsed: response.data.character_count,
+            charactersLimit: response.data.character_limit,
+            percentageUsed: (response.data.character_count / response.data.character_limit * 100).toFixed(2),
+            requestsPerMinute: 20 // DeepL limit
+          };
+          userSpecific = true;
+        } catch (err) {
+          console.error('Failed to fetch DeepL usage:', err.message);
+        }
+      } else if (this.provider.toLowerCase() === 'openai' || this.provider.toLowerCase() === 'chatgpt') {
+        // OpenAI doesn't provide a simple usage endpoint, use rate limits info
+        apiLimits = {
+          note: 'OpenAI rate limits vary by model and plan',
+          tokensPerMinute: 'Varies by plan (40k-200k TPM)',
+          requestsPerMinute: 'Varies by plan (500-5000 RPM)',
+            costEstimate: 'GPT-3.5-turbo: ~$0.002/1K tokens, GPT-4: ~$0.06/1K tokens',
+          documentation: 'https://platform.openai.com/account/rate-limits'
+        };
+        userSpecific = false;
+      } else if (this.provider.toLowerCase() === 'google' || this.provider.toLowerCase() === 'google-translate') {
+        apiLimits = {
+          note: 'Free API - No official limits but subject to rate limiting',
+          requestsPerMinute: 'Unlimited but may be blocked after heavy use',
+          warning: 'For personal use only. Not suitable for commercial applications.',
+          recommendation: 'Consider Google Cloud Translation API for commercial use'
+        };
+        userSpecific = false;
+      }
+    } catch (error) {
+      console.error('Error fetching API limits:', error.message);
+    }
+
+    // Default limits if API fetch fails
+    if (!userSpecific && Object.keys(apiLimits).length === 0) {
+      const defaultLimits = {
+        deepl: {
+          charactersPerMonth: 500000,
+          requestsPerMinute: 20,
+          note: 'Free plan limits'
+        },
+        openai: {
+          tokensPerMinute: 90000,
+          requestsPerMinute: 3500,
+          note: 'Typical plan limits'
+        },
+        google: {
+          note: 'Free API - subject to rate limiting',
+          requestsPerMinute: 'unlimited (but may be blocked)',
+          warning: 'Not suitable for large-scale commercial use'
+        }
+      };
+      apiLimits = defaultLimits[this.provider.toLowerCase()] || {};
+    }
+
     return {
       provider: this.provider,
-      usage,
-      limits: providerLimits,
-      isNearLimit: usage.characters_used > (providerLimits?.charactersPerMonth || 0) * 0.8
+      localUsageToday: usage,
+      apiLimits,
+      userSpecific,
+      isNearLimit: apiLimits.percentageUsed ? apiLimits.percentageUsed > 80 : false,
+      timestamp: new Date().toISOString()
     };
   }
 }

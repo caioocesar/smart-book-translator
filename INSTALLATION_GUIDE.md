@@ -297,3 +297,4 @@ You'll know installation worked when:
 
 **Enjoy translating!** 📚✨
 
+

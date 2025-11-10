@@ -261,3 +261,4 @@ If you discover a security vulnerability:
 **Security Level**: Personal Use - Client-Side Encryption  
 **Compliance**: Not certified for regulated industries
 
+

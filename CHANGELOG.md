@@ -110,3 +110,4 @@ All notable changes to Smart Book Translator will be documented in this file.
 - MINOR version for new functionality (backwards compatible)
 - PATCH version for backwards compatible bug fixes
 
+
