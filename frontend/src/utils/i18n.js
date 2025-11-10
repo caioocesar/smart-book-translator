@@ -52,6 +52,7 @@ const translations = {
     generateDocument: 'Generate Document',
     generating: 'Generating...',
     inProgress: 'In Progress...',
+    retrying: 'Retrying',
     
     // Job Status
     statusPending: 'Pending',
@@ -231,6 +232,7 @@ const translations = {
     generateDocument: 'Gerar Documento',
     generating: 'Gerando...',
     inProgress: 'Em Progresso...',
+    retrying: 'Tentando Novamente',
     
     // Job Status
     statusPending: 'Pendente',
@@ -410,6 +412,7 @@ const translations = {
     generateDocument: 'Generar Documento',
     generating: 'Generando...',
     inProgress: 'En Progreso...',
+    retrying: 'Reintentando',
     
     // Job Status
     statusPending: 'Pendiente',
@@ -488,6 +491,8 @@ const translations = {
     chatgptApiKey: 'Clave de API ChatGPT',
     outputDirectory: 'Directorio de Salida',
     chunkSize: 'Tamaño de Parte',
+    autoRetryFailed: 'Reintentar Automáticamente Partes Fallidas',
+    autoResumePending: 'Reanudar Automáticamente Traducciones Pendientes',
     saveSettings: 'Guardar Configuración',
     getCredentials: 'Cómo obtener credenciales',
     
