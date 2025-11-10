@@ -91,6 +91,16 @@ const DEFAULT_PLANS = {
       outputCost: 0.01, // per 1K tokens
       supportsGlossary: false,
       supportsHtml: false
+    },
+    gpt5: {
+      name: 'GPT-5',
+      contextWindow: 200000, // tokens (estimated - update when official specs available)
+      tokensPerMinute: 300000, // estimated
+      requestsPerMinute: 10000, // estimated
+      inputCost: 0.005, // per 1K tokens (estimated - update when official pricing available)
+      outputCost: 0.015, // per 1K tokens (estimated)
+      supportsGlossary: false,
+      supportsHtml: false
     }
   },
   google: {
