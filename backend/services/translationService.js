@@ -157,11 +157,12 @@ ${useHtml ? '- The text was extracted from HTML, so preserve paragraph breaks an
 
       const translatedText = response.choices[0].message.content;
       
-      // Track usage
+      // Track usage (use original text length, not extracted)
       ApiUsage.track('openai', text.length, 1);
 
       return {
         translatedText,
+        translatedHtml: null, // OpenAI doesn't return HTML, would need reconstruction
         charactersUsed: text.length,
         tokensUsed: response.usage.total_tokens
       };
