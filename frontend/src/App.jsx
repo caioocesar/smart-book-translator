@@ -23,7 +23,10 @@ function App() {
   useEffect(() => {
     // Test backend connection
     fetch(`${API_URL}/api/health`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Backend not responding');
+        return res.json();
+      })
       .then(data => {
         setApiStatus(data);
       })
