@@ -384,6 +384,24 @@
   background: #5a6268;
 }
 
+.btn-check-limits {
+  background: #667eea !important;
+  color: white !important;
+}
+
+.btn-check-limits:hover:not(:disabled) {
+  background: #5568d3 !important;
+}
+
+.btn-test {
+  background: #667eea !important;
+  color: white !important;
+}
+
+.btn-test:hover:not(:disabled) {
+  background: #5568d3 !important;
+}
+
 .btn-danger {
   background: #dc3545;
   color: white;
@@ -396,6 +414,18 @@
 .btn-small {
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+  background: #667eea !important;
+  color: white !important;
+}
+
+.btn-small:hover:not(:disabled) {
+  background: #5568d3 !important;
+}
+
+.btn-small:disabled {
+  background: #ccc !important;
+  color: #666 !important;
+  cursor: not-allowed;
 }
 
 .error-message, .success-message, .warning {

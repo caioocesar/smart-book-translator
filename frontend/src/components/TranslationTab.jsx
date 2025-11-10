@@ -423,7 +423,7 @@ function TranslationTab({ settings }) {
           </button>
           <button 
             onClick={checkApiLimits} 
-            className="btn-secondary" 
+            className="btn-secondary btn-check-limits" 
             disabled={(apiProvider !== 'google' && !apiKey) || refreshingLimits}
           >
             {refreshingLimits ? '⏳ Checking...' : '📊 Check API Limits'}
@@ -484,19 +484,32 @@ function TranslationTab({ settings }) {
             
             <div className="all-limits-grid">
               {Object.entries(allApiLimits).map(([provider, limits]) => {
+                // Skip invalid provider names
+                const validProviders = ['google', 'deepl', 'openai', 'chatgpt'];
+                const normalizedProvider = provider.toLowerCase();
+                if (!validProviders.includes(normalizedProvider) && normalizedProvider !== 'google-translate') {
+                  return null;
+                }
+                
                 if (!limits || limits.error) return null;
                 const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
                 const apiLimitsData = limits.apiLimits || {};
                 
-                // Skip if no data at all
+                // Skip if no data at all and no meaningful limits info
                 if (!usage.characters_used && !usage.requests_count && 
-                    !apiLimitsData.charactersLimit && !apiLimitsData.requestsPerMinute) {
+                    !apiLimitsData.charactersLimit && !apiLimitsData.requestsPerMinute &&
+                    !apiLimitsData.note && !apiLimitsData.warning) {
                   return null;
                 }
                 
+                // Use proper provider name for display
+                let displayName = provider.toLowerCase();
+                if (displayName === 'google-translate') displayName = 'google';
+                if (displayName === 'chatgpt') displayName = 'openai';
+                
                 return (
                   <div key={provider} className="api-limit-card">
-                    <h5>{provider.toUpperCase()}</h5>
+                    <h5>{displayName.toUpperCase()}</h5>
                     <div className="limit-details">
                       <p><strong>Characters Used Today:</strong> {usage.characters_used.toLocaleString()}</p>
                       <p><strong>Requests Today:</strong> {usage.requests_count}</p>
