@@ -71,6 +71,9 @@ function App() {
     forceUpdate({}); // Force re-render to update translations
   };
 
+  // Add a simple test to verify React is rendering
+  console.log('App component rendering...', { activeTab, settings, apiStatus });
+
   return (
     <div className="app">
       <header className="app-header">
