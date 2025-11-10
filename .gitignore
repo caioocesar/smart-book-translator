@@ -8,3 +8,5 @@ outputs/
 data/
 temp/
 dist/
+.port-info.json
+.pids

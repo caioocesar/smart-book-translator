@@ -121,13 +121,14 @@
   background: #fff3cd;
   border-left: 4px solid #ffc107;
   border-radius: 4px;
-  color: #856404;
+  color: #664d03;
   font-size: 0.9rem;
+  font-weight: 500;
 }
 
 /* Pricing */
 .guide-pricing {
-  background: #e7f3ff;
+  background: #d0e2ff;
   padding: 1.25rem;
   border-radius: 8px;
   margin-top: 1.5rem;
@@ -135,10 +136,11 @@
 }
 
 .guide-pricing h3 {
-  color: #667eea;
+  color: #2c3e50;
   margin-top: 0;
   margin-bottom: 1rem;
   font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .pricing-details {
@@ -149,12 +151,13 @@
 
 .pricing-item {
   padding: 0.5rem 0;
-  color: #495057;
+  color: #2c3e50;
   line-height: 1.5;
 }
 
 .pricing-item strong {
-  color: #667eea;
+  color: #1e3a8a;
+  font-weight: 600;
 }
 
 .pricing-item.estimate {
@@ -169,8 +172,9 @@
   padding: 0.75rem;
   background: white;
   border-radius: 6px;
-  color: #495057;
+  color: #2c3e50;
   font-style: italic;
+  font-weight: 500;
 }
 
 /* Links */

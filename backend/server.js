@@ -84,6 +84,15 @@ app.use('/api/glossary', glossaryRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/term-lookup', termLookupRoutes);
 
+// Port info endpoint
+app.get('/api/port-info', (req, res) => {
+  res.json({
+    backendPort: httpServer.address()?.port || PORT,
+    backendUrl: `http://localhost:${httpServer.address()?.port || PORT}`,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Serve static files (outputs)
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
@@ -115,32 +124,51 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// Start server with port check
+// Start server with port check and auto-fallback
 async function startServer() {
-  const isPortAvailable = await checkPortAvailable(PORT);
+  let currentPort = PORT;
+  let attempts = 0;
+  const maxAttempts = 10;
   
-  if (!isPortAvailable) {
-    console.error(`❌ ERROR: Port ${PORT} is already in use!`);
-    console.error(`Please either:`);
-    console.error(`  1. Stop the process using port ${PORT}`);
-    console.error(`  2. Set a different port: export PORT=5001`);
-    console.error(`  3. On Linux: sudo lsof -ti:${PORT} | xargs kill -9`);
-    console.error(`     On Windows: netstat -ano | findstr :${PORT}, then taskkill /PID <PID> /F`);
-    process.exit(1);
+  while (attempts < maxAttempts) {
+    const isPortAvailable = await checkPortAvailable(currentPort);
+    
+    if (isPortAvailable) {
+      httpServer.listen(currentPort, async () => {
+        console.log(`✅ Server is running on http://localhost:${currentPort}`);
+        console.log('✅ Database initialized');
+        console.log('✅ WebSocket server ready');
+        
+        // Run startup tests
+        await runStartupTests();
+        
+        console.log('🎉 Smart Book Translator is ready!');
+        console.log(`\n📝 Backend Port: ${currentPort}`);
+        console.log(`📝 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}\n`);
+        
+        // Save port info to a file for frontend to read
+        const fs = await import('fs');
+        const portInfo = {
+          backendPort: currentPort,
+          backendUrl: `http://localhost:${currentPort}`,
+          timestamp: new Date().toISOString()
+        };
+        fs.writeFileSync(
+          path.join(__dirname, '../.port-info.json'),
+          JSON.stringify(portInfo, null, 2)
+        );
+      });
+      return;
+    }
+    
+    console.log(`⚠️  Port ${currentPort} is in use, trying ${currentPort + 1}...`);
+    currentPort++;
+    attempts++;
   }
-
-  httpServer.listen(PORT, async () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-    console.log('Database initialized');
-    console.log('WebSocket server ready');
-    
-    // Run startup tests
-    await runStartupTests();
-    
-    console.log('🎉 Smart Book Translator is ready!');
-    console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-    console.log('\n');
-  });
+  
+  console.error(`❌ ERROR: Could not find an available port after ${maxAttempts} attempts!`);
+  console.error(`Please free up some ports starting from ${PORT}`);
+  process.exit(1);
 }
 
 startServer();
