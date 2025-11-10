@@ -76,10 +76,22 @@ function DocumentInfoBox({ documentInfo, recommendations, onSelectRecommendation
                     <span>{t('chunkSize') || 'Chunk Size'}: {rec.recommendedChunkSize.toLocaleString()} {t('characters') || 'chars'}</span>
                     <span>•</span>
                     <span>{t('estimatedChunks') || 'Chunks'}: {rec.estimatedChunks}</span>
-                    {rec.cost !== undefined && (
+                    {rec.monthlyLimitFormatted && (
+                      <>
+                        <span>•</span>
+                        <span>{t('monthlyLimit') || 'Monthly Limit'}: {rec.monthlyLimitFormatted}</span>
+                      </>
+                    )}
+                    {rec.cost !== undefined && rec.cost > 0 && (
                       <>
                         <span>•</span>
                         <span>{t('estimatedCost') || 'Cost'}: ${rec.cost.toFixed(2)}</span>
+                      </>
+                    )}
+                    {rec.cost === 0 && !rec.monthlyLimitFormatted && (
+                      <>
+                        <span>•</span>
+                        <span>{t('free') || 'Free'}</span>
                       </>
                     )}
                   </div>

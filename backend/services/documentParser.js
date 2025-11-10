@@ -144,6 +144,117 @@ class DocumentParser {
     return chunks;
   }
 
+  /**
+   * Split HTML content into chunks that match the number of text chunks
+   * Preserves HTML tags and structure while aligning with text chunk boundaries
+   * @param {string} html - The HTML content to split
+   * @param {number} numChunks - The number of chunks to create (should match text chunks)
+   * @returns {Array<string>} Array of HTML chunks
+   */
+  static splitHtmlIntoChunks(html, numChunks) {
+    if (!html || numChunks <= 0) {
+      return [];
+    }
+
+    // First, extract plain text from HTML to determine split points
+    const textChunks = this.splitIntoChunks(html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' '), Math.ceil(html.length / numChunks));
+    
+    // If we couldn't create the expected number of chunks, adjust
+    const actualNumChunks = Math.max(textChunks.length, numChunks);
+    
+    // Split HTML by finding boundaries that align with text chunks
+    const htmlChunks = [];
+    let currentPosition = 0;
+    const htmlLength = html.length;
+    const chunkSize = Math.ceil(htmlLength / actualNumChunks);
+    
+    // Track open tags to avoid breaking in the middle of HTML elements
+    const openTags = [];
+    let inTag = false;
+    let tagBuffer = '';
+    
+    for (let i = 0; i < actualNumChunks; i++) {
+      const targetEnd = Math.min(currentPosition + chunkSize, htmlLength);
+      
+      if (i === actualNumChunks - 1) {
+        // Last chunk - take everything remaining
+        htmlChunks.push(html.substring(currentPosition));
+        break;
+      }
+      
+      // Find a good split point near the target end
+      let splitPoint = targetEnd;
+      
+      // Look for paragraph boundaries, div boundaries, or other block elements
+      const lookAhead = Math.min(500, htmlLength - targetEnd);
+      const searchStart = Math.max(currentPosition, targetEnd - 500);
+      const searchEnd = Math.min(htmlLength, targetEnd + lookAhead);
+      const searchArea = html.substring(searchStart, searchEnd);
+      
+      // Try to find a closing tag for block elements
+      const blockEndPatterns = [
+        /<\/p>/i,
+        /<\/div>/i,
+        /<\/h[1-6]>/i,
+        /<\/section>/i,
+        /<\/article>/i,
+        /<\/li>/i,
+        /<\/td>/i,
+        /<\/th>/i
+      ];
+      
+      let bestSplit = targetEnd;
+      let bestDistance = Infinity;
+      
+      for (const pattern of blockEndPatterns) {
+        const matches = [...searchArea.matchAll(new RegExp(pattern.source, 'gi'))];
+        for (const match of matches) {
+          const matchPos = searchStart + match.index + match[0].length;
+          if (matchPos > currentPosition && matchPos <= searchEnd) {
+            const distance = Math.abs(matchPos - targetEnd);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestSplit = matchPos;
+            }
+          }
+        }
+      }
+      
+      // If we found a good split point, use it; otherwise use the target
+      splitPoint = bestSplit < htmlLength ? bestSplit : targetEnd;
+      
+      // Ensure we don't break in the middle of a tag
+      let lastTagEnd = html.lastIndexOf('>', splitPoint);
+      let nextTagStart = html.indexOf('<', splitPoint);
+      
+      if (nextTagStart !== -1 && nextTagStart < splitPoint + 100) {
+        // We're near a tag, find the closing bracket
+        const tagEnd = html.indexOf('>', nextTagStart);
+        if (tagEnd !== -1 && tagEnd < splitPoint + 200) {
+          splitPoint = tagEnd + 1;
+        }
+      } else if (lastTagEnd !== -1 && lastTagEnd > splitPoint - 100) {
+        // Use the last complete tag as split point
+        splitPoint = lastTagEnd + 1;
+      }
+      
+      // Extract chunk
+      const chunk = html.substring(currentPosition, splitPoint).trim();
+      if (chunk.length > 0) {
+        htmlChunks.push(chunk);
+      }
+      
+      currentPosition = splitPoint;
+    }
+    
+    // Ensure we have the right number of chunks
+    while (htmlChunks.length < numChunks) {
+      htmlChunks.push('');
+    }
+    
+    return htmlChunks.slice(0, numChunks);
+  }
+
   static async parsePDF(filePath) {
     const dataBuffer = fs.readFileSync(filePath);
     const data = await pdfParse(dataBuffer);

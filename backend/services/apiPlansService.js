@@ -285,20 +285,26 @@ class ApiPlansService {
     const deeplStarter = DEFAULT_PLANS.deepl.starter;
     const deeplAdvanced = DEFAULT_PLANS.deepl.advanced;
     
-    // Always recommend DeepL Free if document fits
-    if (characterCount <= deeplFree.monthlyLimit) {
-      recommendations.push({
-        provider: 'deepl',
-        plan: 'free',
-        model: 'DeepL Free',
-        reason: `Document fits within free tier (${(characterCount / deeplFree.monthlyLimit * 100).toFixed(1)}% of limit)`,
-        estimatedChunks: Math.ceil(characterCount / 4000),
-        recommendedChunkSize: 4000,
-        supportsGlossary: false,
-        supportsHtml: true,
-        cost: 0
-      });
-    }
+    // Always recommend DeepL Free - show it even if document exceeds limit
+    const fitsInFree = characterCount <= deeplFree.monthlyLimit;
+    const usagePercent = (characterCount / deeplFree.monthlyLimit * 100).toFixed(1);
+    
+    recommendations.push({
+      provider: 'deepl',
+      plan: 'free',
+      model: 'DeepL Free',
+      reason: fitsInFree 
+        ? `Document fits within free tier (${usagePercent}% of ${(deeplFree.monthlyLimit / 1000).toFixed(0)}k limit)`
+        : `Document exceeds free tier limit (${usagePercent}% of ${(deeplFree.monthlyLimit / 1000).toFixed(0)}k limit)`,
+      estimatedChunks: Math.ceil(characterCount / 4000),
+      recommendedChunkSize: 4000,
+      supportsGlossary: false,
+      supportsHtml: true,
+      cost: 0,
+      monthlyLimit: deeplFree.monthlyLimit,
+      monthlyLimitFormatted: `${(deeplFree.monthlyLimit / 1000).toFixed(0)}k chars/month`,
+      warning: !fitsInFree ? `Document exceeds free tier limit. Consider upgrading to DeepL Pro.` : null
+    });
     
     // Always recommend DeepL Pro Starter if document fits
     if (characterCount <= deeplStarter.monthlyLimit) {
