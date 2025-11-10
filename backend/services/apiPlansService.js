@@ -434,12 +434,38 @@ class ApiPlansService {
       warning: 'May be blocked after heavy usage'
     });
     
-    // Sort by cost (free first), then by quality
+    // Sort by cost (free first), then by quality, but ensure DeepL is always visible
     recommendations.sort((a, b) => {
+      // Prioritize DeepL - always show at least one DeepL option in top 3
+      const aIsDeepL = a.provider === 'deepl';
+      const bIsDeepL = b.provider === 'deepl';
+      
+      // If one is DeepL and we don't have DeepL in top 3 yet, prioritize it
+      if (aIsDeepL && !bIsDeepL) {
+        // Check if we already have DeepL in recommendations (will be checked by frontend)
+        return -1;
+      }
+      if (bIsDeepL && !aIsDeepL) {
+        return 1;
+      }
+      
+      // Otherwise sort by cost
       if (a.cost === 0 && b.cost > 0) return -1;
       if (b.cost === 0 && a.cost > 0) return 1;
       return a.cost - b.cost;
     });
+    
+    // Ensure at least one DeepL recommendation is in the top 3
+    const top3HasDeepL = recommendations.slice(0, 3).some(r => r.provider === 'deepl');
+    if (!top3HasDeepL) {
+      // Find first DeepL recommendation and move it to position 1 or 2
+      const deeplIndex = recommendations.findIndex(r => r.provider === 'deepl');
+      if (deeplIndex > 0) {
+        const deeplRec = recommendations.splice(deeplIndex, 1)[0];
+        // Insert at position 1 (after first recommendation, which is usually best choice)
+        recommendations.splice(1, 0, deeplRec);
+      }
+    }
     
     return recommendations;
   }

@@ -46,6 +46,7 @@ const translations = {
     estimatedCost: 'Estimated Cost',
     supportsGlossary: 'Supports Glossary',
     preservesFormatting: 'Preserves Formatting',
+    openaiModel: 'OpenAI Model',
     
     // API Providers
     providerDeepL: 'DeepL',
@@ -254,6 +255,7 @@ const translations = {
     estimatedCost: 'Custo Estimado',
     supportsGlossary: 'Suporta Glossário',
     preservesFormatting: 'Preserva Formatação',
+    openaiModel: 'Modelo OpenAI',
     
     // API Providers
     providerDeepL: 'DeepL',

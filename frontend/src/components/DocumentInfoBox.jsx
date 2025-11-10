@@ -60,7 +60,7 @@ function DocumentInfoBox({ documentInfo, recommendations, onSelectRecommendation
         <div className="recommendations-section">
           <h4>💡 {t('recommendedModels') || 'Recommended Models'}</h4>
           <div className="recommendations-list">
-            {recommendations.slice(0, 3).map((rec, index) => (
+            {recommendations.slice(0, 5).map((rec, index) => (
               <div 
                 key={index} 
                 className={`recommendation-card ${index === 0 ? 'recommended' : ''}`}

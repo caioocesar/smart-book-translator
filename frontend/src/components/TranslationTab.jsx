@@ -29,6 +29,7 @@ function TranslationTab({ settings }) {
   const [recommendations, setRecommendations] = useState(null);
   const [analyzingDocument, setAnalyzingDocument] = useState(false);
   const [chunkSize, setChunkSize] = useState(settings.chunkSize || 3000);
+  const [openaiModel, setOpenaiModel] = useState(settings.openai_model || 'gpt-3.5-turbo');
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -339,6 +340,21 @@ function TranslationTab({ settings }) {
     // Set chunk size from recommendation
     if (rec.recommendedChunkSize) {
       setChunkSize(rec.recommendedChunkSize);
+    }
+    // Set model if it's an OpenAI recommendation
+    if (rec.provider === 'openai' || rec.provider === 'chatgpt') {
+      if (rec.plan) {
+        // Map plan to model ID
+        const modelMap = {
+          'gpt-5': 'gpt-5',
+          'gpt-4o': 'gpt-4o',
+          'gpt-4-turbo': 'gpt-4-turbo',
+          'gpt-4': 'gpt-4',
+          'gpt-3.5-turbo': 'gpt-3.5-turbo'
+        };
+        const modelId = modelMap[rec.plan] || rec.plan;
+        setOpenaiModel(modelId);
+      }
     }
     console.log('Selected recommendation:', rec);
   };
