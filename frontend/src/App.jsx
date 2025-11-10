@@ -71,7 +71,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <div className="header-content">
-          <h1>📚 {t('appTitle')}</h1>
+          <h1>📚 Smart Book Translator</h1>
           <div className="header-actions">
             {/* Language Selector */}
             <select 

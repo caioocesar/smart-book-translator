@@ -4,54 +4,144 @@ import EPub from 'epub';
 import fs from 'fs';
 
 class DocumentParser {
-  // Split text into chunks (to respect API limits)
+  /**
+   * Split text into chunks intelligently respecting natural boundaries
+   * Priority: Paragraphs > Sentences > Words > Characters
+   * Ensures chunks don't break in the middle of sentences
+   */
   static splitIntoChunks(text, maxChunkSize = 3000) {
     const chunks = [];
-    const paragraphs = text.split(/\n\n+/);
+    
+    // Split by paragraphs (double newlines or more)
+    const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
     
     let currentChunk = '';
     
     for (const paragraph of paragraphs) {
-      if (currentChunk.length + paragraph.length + 2 > maxChunkSize) {
-        if (currentChunk) {
+      const trimmedParagraph = paragraph.trim();
+      
+      // If adding this paragraph exceeds the limit
+      if (currentChunk.length + trimmedParagraph.length + 2 > maxChunkSize) {
+        // Save current chunk if it has content
+        if (currentChunk.trim().length > 0) {
           chunks.push(currentChunk.trim());
           currentChunk = '';
         }
         
-        // If a single paragraph is too large, split it by sentences
-        if (paragraph.length > maxChunkSize) {
-          const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
-          for (const sentence of sentences) {
-            if (currentChunk.length + sentence.length > maxChunkSize) {
-              if (currentChunk) {
-                chunks.push(currentChunk.trim());
-                currentChunk = '';
-              }
-              // If a single sentence is still too large, force split
-              if (sentence.length > maxChunkSize) {
-                for (let i = 0; i < sentence.length; i += maxChunkSize) {
-                  chunks.push(sentence.slice(i, i + maxChunkSize).trim());
-                }
-              } else {
-                currentChunk = sentence;
-              }
-            } else {
-              currentChunk += sentence;
-            }
-          }
+        // If paragraph itself is too large, split by sentences
+        if (trimmedParagraph.length > maxChunkSize) {
+          const sentenceChunks = this.splitParagraphBySentences(trimmedParagraph, maxChunkSize);
+          chunks.push(...sentenceChunks);
         } else {
-          currentChunk = paragraph;
+          currentChunk = trimmedParagraph;
         }
       } else {
-        currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+        // Add paragraph to current chunk
+        if (currentChunk.length > 0) {
+          currentChunk += '\n\n' + trimmedParagraph;
+        } else {
+          currentChunk = trimmedParagraph;
+        }
       }
     }
     
-    if (currentChunk) {
+    // Add remaining content
+    if (currentChunk.trim().length > 0) {
       chunks.push(currentChunk.trim());
     }
     
     return chunks.filter(chunk => chunk.length > 0);
+  }
+
+  /**
+   * Split a paragraph by sentences when it's too large
+   * Respects sentence boundaries (. ! ? followed by space or newline)
+   */
+  static splitParagraphBySentences(paragraph, maxChunkSize) {
+    const chunks = [];
+    
+    // Improved sentence splitting regex
+    // Matches sentences ending with . ! ? followed by space, newline, or end of string
+    // Handles abbreviations like "Mr." "Dr." "etc."
+    const sentenceRegex = /[^.!?]+[.!?]+(?:\s|$)/g;
+    const sentences = paragraph.match(sentenceRegex) || [paragraph];
+    
+    let currentChunk = '';
+    
+    for (const sentence of sentences) {
+      const trimmedSentence = sentence.trim();
+      
+      if (currentChunk.length + trimmedSentence.length + 1 > maxChunkSize) {
+        // Save current chunk
+        if (currentChunk.trim().length > 0) {
+          chunks.push(currentChunk.trim());
+          currentChunk = '';
+        }
+        
+        // If single sentence is still too large, split by words
+        if (trimmedSentence.length > maxChunkSize) {
+          const wordChunks = this.splitSentenceByWords(trimmedSentence, maxChunkSize);
+          chunks.push(...wordChunks);
+        } else {
+          currentChunk = trimmedSentence;
+        }
+      } else {
+        // Add sentence to current chunk
+        if (currentChunk.length > 0) {
+          currentChunk += ' ' + trimmedSentence;
+        } else {
+          currentChunk = trimmedSentence;
+        }
+      }
+    }
+    
+    if (currentChunk.trim().length > 0) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    return chunks;
+  }
+
+  /**
+   * Split a sentence by words when it's too large (last resort)
+   * Tries to keep complete words together
+   */
+  static splitSentenceByWords(sentence, maxChunkSize) {
+    const chunks = [];
+    const words = sentence.split(/\s+/);
+    
+    let currentChunk = '';
+    
+    for (const word of words) {
+      if (currentChunk.length + word.length + 1 > maxChunkSize) {
+        if (currentChunk.trim().length > 0) {
+          chunks.push(currentChunk.trim());
+          currentChunk = '';
+        }
+        
+        // If a single word is larger than maxChunkSize (rare case like URLs)
+        // Split it by characters as last resort
+        if (word.length > maxChunkSize) {
+          for (let i = 0; i < word.length; i += maxChunkSize) {
+            chunks.push(word.slice(i, i + maxChunkSize));
+          }
+        } else {
+          currentChunk = word;
+        }
+      } else {
+        if (currentChunk.length > 0) {
+          currentChunk += ' ' + word;
+        } else {
+          currentChunk = word;
+        }
+      }
+    }
+    
+    if (currentChunk.trim().length > 0) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    return chunks;
   }
 
   static async parsePDF(filePath) {
