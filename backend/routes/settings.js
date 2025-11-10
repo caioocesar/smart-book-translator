@@ -1,0 +1,121 @@
+import express from 'express';
+import Settings from '../models/Settings.js';
+import TranslationService from '../services/translationService.js';
+import { ApiUsage } from '../models/TranslationJob.js';
+
+const router = express.Router();
+
+// Get all settings
+router.get('/', (req, res) => {
+  try {
+    const settings = Settings.getAll();
+    res.json(settings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single setting
+router.get('/:key', (req, res) => {
+  try {
+    const { key } = req.params;
+    const value = Settings.get(key);
+    res.json({ key, value });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set setting
+router.post('/', (req, res) => {
+  try {
+    const { key, value } = req.body;
+    
+    if (!key) {
+      return res.status(400).json({ error: 'Key is required' });
+    }
+
+    Settings.set(key, value);
+    res.json({ message: 'Setting saved', key, value });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete setting
+router.delete('/:key', (req, res) => {
+  try {
+    const { key } = req.params;
+    Settings.delete(key);
+    res.json({ message: 'Setting deleted', key });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test API credentials
+router.post('/test-api', async (req, res) => {
+  try {
+    const { provider, apiKey, options } = req.body;
+
+    if (!provider || !apiKey) {
+      return res.status(400).json({ error: 'Provider and API key are required' });
+    }
+
+    const service = new TranslationService(provider, apiKey, options);
+    
+    // Test with a simple translation
+    const result = await service.translate('Hello', 'en', 'es');
+    
+    res.json({
+      success: true,
+      message: 'API credentials are valid',
+      testTranslation: result.translatedText
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get API usage statistics
+router.get('/usage/:provider', (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { days } = req.query;
+
+    const today = ApiUsage.getUsageToday(provider);
+    const history = ApiUsage.getUsageHistory(provider, days ? parseInt(days) : 30);
+
+    res.json({
+      provider,
+      today,
+      history
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check API limits
+router.post('/check-limits', async (req, res) => {
+  try {
+    const { provider, apiKey, options } = req.body;
+
+    if (!provider || !apiKey) {
+      return res.status(400).json({ error: 'Provider and API key are required' });
+    }
+
+    const service = new TranslationService(provider, apiKey, options);
+    const limits = await service.checkLimits();
+
+    res.json(limits);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+export default router;
+

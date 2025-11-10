@@ -1,0 +1,334 @@
+import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import db from '../database/db.js';
+import DocumentParser from '../services/documentParser.js';
+import TranslationService from '../services/translationService.js';
+import DocumentBuilder from '../services/documentBuilder.js';
+import { TranslationJob, TranslationChunk } from '../models/TranslationJob.js';
+import Settings from '../models/Settings.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const router = express.Router();
+
+// Configure multer for file uploads
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.pdf', '.docx', '.epub'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, DOCX, and EPUB files are allowed'));
+    }
+  }
+});
+
+// Upload and start translation
+router.post('/upload', upload.single('document'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const {
+      sourceLanguage,
+      targetLanguage,
+      apiProvider,
+      outputFormat,
+      apiKey
+    } = req.body;
+
+    if (!sourceLanguage || !targetLanguage || !apiProvider || !apiKey) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const filePath = req.file.path;
+    const fileExt = path.extname(req.file.originalname).substring(1);
+
+    // Parse document
+    const parsed = await DocumentParser.parse(filePath, fileExt);
+    const chunks = DocumentParser.splitIntoChunks(parsed.text);
+
+    // Create translation job
+    const jobId = TranslationJob.create(
+      req.file.originalname,
+      sourceLanguage,
+      targetLanguage,
+      apiProvider,
+      outputFormat || fileExt,
+      chunks.length
+    );
+
+    // Store chunks
+    chunks.forEach((chunk, index) => {
+      TranslationChunk.add(jobId, index, chunk);
+    });
+
+    // Clean up uploaded file
+    fs.unlinkSync(filePath);
+
+    res.json({
+      jobId,
+      totalChunks: chunks.length,
+      metadata: parsed.metadata
+    });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Start translation process
+router.post('/translate/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { apiKey, apiOptions } = req.body;
+
+    const job = TranslationJob.get(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    TranslationJob.updateStatus(jobId, 'translating');
+
+    // Start translation in background
+    translateJob(jobId, apiKey, apiOptions).catch(error => {
+      console.error('Translation error:', error);
+      TranslationJob.updateStatus(jobId, 'failed', error.message);
+    });
+
+    res.json({ message: 'Translation started', jobId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get job status
+router.get('/status/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const chunks = TranslationChunk.getByJob(jobId);
+    const completed = chunks.filter(c => c.status === 'completed').length;
+    const failed = chunks.filter(c => c.status === 'failed').length;
+
+    res.json({
+      job,
+      progress: {
+        total: chunks.length,
+        completed,
+        failed,
+        pending: chunks.length - completed - failed,
+        percentage: Math.round((completed / chunks.length) * 100)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Download translated document
+router.get('/download/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    if (job.status !== 'completed') {
+      return res.status(400).json({ error: 'Translation not completed' });
+    }
+
+    const chunks = TranslationChunk.getByJob(jobId);
+    const translatedChunks = chunks.map(c => c.translated_text);
+
+    // Get output directory from settings or use default
+    const outputDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const outputFilename = `translated_${job.filename.replace(/\.[^.]+$/, '')}.${job.output_format}`;
+    const outputPath = path.join(outputDir, outputFilename);
+
+    await DocumentBuilder.build(translatedChunks, job.output_format, outputPath);
+
+    res.download(outputPath, outputFilename);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Retry failed chunks
+router.post('/retry/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { apiKey, apiOptions } = req.body;
+
+    const job = TranslationJob.get(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    TranslationChunk.resetForRetry(jobId);
+    TranslationJob.updateStatus(jobId, 'translating');
+
+    translateJob(jobId, apiKey, apiOptions).catch(error => {
+      console.error('Translation error:', error);
+      TranslationJob.updateStatus(jobId, 'failed', error.message);
+    });
+
+    res.json({ message: 'Retry started', jobId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all jobs
+router.get('/jobs', async (req, res) => {
+  try {
+    const jobs = TranslationJob.getAll();
+    res.json(jobs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a job
+router.delete('/jobs/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    TranslationJob.delete(jobId);
+    res.json({ message: 'Job deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Retry all chunks (from beginning)
+router.post('/retry-all/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { apiKey, apiProvider, apiOptions } = req.body;
+
+    const job = TranslationJob.get(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Reset all chunks to pending
+    const chunks = TranslationChunk.getByJob(jobId);
+    chunks.forEach(chunk => {
+      const stmt = db.prepare(`
+        UPDATE translation_chunks 
+        SET status = 'pending', error_message = NULL, translated_text = NULL
+        WHERE id = ?
+      `);
+      stmt.run(chunk.id);
+    });
+
+    // Update job
+    TranslationJob.updateStatus(jobId, 'translating');
+    TranslationJob.updateProgress(jobId, 0, 0);
+
+    // Update API provider if changed
+    if (apiProvider && apiProvider !== job.api_provider) {
+      const stmt = db.prepare('UPDATE translation_jobs SET api_provider = ? WHERE id = ?');
+      stmt.run(apiProvider, jobId);
+    }
+
+    // Start translation in background
+    translateJob(jobId, apiKey, apiOptions, apiProvider || job.api_provider).catch(error => {
+      console.error('Translation error:', error);
+      TranslationJob.updateStatus(jobId, 'failed', error.message);
+    });
+
+    res.json({ message: 'Retrying all chunks', jobId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Background translation function
+async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) {
+  const job = TranslationJob.get(jobId);
+  const chunks = TranslationChunk.getPending(jobId);
+  
+  const provider = apiProvider || job.api_provider;
+
+  const translationService = new TranslationService(
+    provider,
+    apiKey,
+    apiOptions
+  );
+
+  let completed = 0;
+  let failed = 0;
+
+  for (const chunk of chunks) {
+    try {
+      // Add delay to respect rate limits
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const result = await translationService.translate(
+        chunk.source_text,
+        job.source_language,
+        job.target_language
+      );
+
+      TranslationChunk.updateTranslation(chunk.id, result.translatedText);
+      completed++;
+      TranslationJob.updateProgress(jobId, completed, failed);
+    } catch (error) {
+      console.error(`Chunk ${chunk.chunk_index} failed:`, error.message);
+      TranslationChunk.markFailed(chunk.id, error.message);
+      failed++;
+      TranslationJob.updateProgress(jobId, completed, failed);
+
+      // If rate limit error, wait longer
+      if (error.message.includes('Rate limit')) {
+        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+      }
+    }
+  }
+
+  if (failed === 0) {
+    TranslationJob.updateStatus(jobId, 'completed');
+  } else if (completed === 0) {
+    TranslationJob.updateStatus(jobId, 'failed', 'All chunks failed');
+  } else {
+    TranslationJob.updateStatus(jobId, 'partial', `${failed} chunks failed`);
+  }
+}
+
+export default router;
+
