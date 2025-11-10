@@ -399,8 +399,18 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
     
     while (!chunkCompleted && attempts < maxRetries) {
       try {
-        // Add delay to respect rate limits (longer delay for OpenAI)
-        const delay = provider === 'openai' || provider === 'chatgpt' ? 2000 : 1000;
+        // Add delay to respect rate limits
+        // Google Translate: 2-3 seconds (free API is very strict)
+        // DeepL: 1 second (20 requests/min = 3 seconds per request)
+        // OpenAI: 2 seconds (varies by plan)
+        let delay = 1000;
+        if (provider === 'google' || provider === 'google-translate') {
+          delay = 3000; // 3 seconds for Google (very strict rate limits)
+        } else if (provider === 'deepl') {
+          delay = 3000; // 3 seconds for DeepL (20 req/min = 3 sec/req)
+        } else if (provider === 'openai' || provider === 'chatgpt') {
+          delay = 2000; // 2 seconds for OpenAI
+        }
         await new Promise(resolve => setTimeout(resolve, delay));
 
         const result = await translationService.translate(
@@ -484,6 +494,39 @@ router.get('/chunks/:jobId', async (req, res) => {
   }
 });
 
+// Schedule retry for failed chunks when limits reset (e.g., next day)
+router.post('/schedule-retry/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { apiKey, apiProvider, apiOptions } = req.body;
+    
+    const job = TranslationJob.get(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Mark failed chunks for scheduled retry
+    const failedChunks = TranslationChunk.getByJob(jobId).filter(c => c.status === 'failed');
+    
+    if (failedChunks.length === 0) {
+      return res.json({ message: 'No failed chunks to retry', jobId });
+    }
+
+    // Store retry schedule in job metadata or create a scheduled retry job
+    // For now, we'll just mark chunks as pending and they'll be retried on next translation start
+    TranslationChunk.resetForRetry(jobId);
+    TranslationJob.updateStatus(jobId, 'pending');
+
+    res.json({ 
+      message: `Scheduled retry for ${failedChunks.length} failed chunks`,
+      jobId,
+      chunksToRetry: failedChunks.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Generate final document from completed chunks
 router.post('/generate/:jobId', async (req, res) => {
   try {
@@ -509,14 +552,14 @@ router.post('/generate/:jobId', async (req, res) => {
     const translatedTexts = chunks.map(c => c.translated_text);
     const combinedText = translatedTexts.join('\n\n');
 
-    // Build the output document
-    const outputsDir = path.join(__dirname, '..', 'outputs');
-    if (!fs.existsSync(outputsDir)) {
-      fs.mkdirSync(outputsDir, { recursive: true });
+    // Build the output document - use settings output directory or default
+    const outputDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    const outputFilename = `translated_${job.filename}`;
-    const outputPath = path.join(outputsDir, outputFilename);
+    const outputFilename = `translated_${job.filename.replace(/\.[^.]+$/, '')}.${job.output_format}`;
+    const outputPath = path.join(outputDir, outputFilename);
 
     // Use DocumentBuilder to create the output file
     const builder = new DocumentBuilder();
@@ -528,6 +571,8 @@ router.post('/generate/:jobId', async (req, res) => {
     res.json({ 
       success: true, 
       outputPath,
+      outputDirectory: outputDir,
+      outputFilename,
       message: 'Document generated successfully'
     });
   } catch (error) {

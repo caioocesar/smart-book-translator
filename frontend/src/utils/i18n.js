@@ -77,6 +77,7 @@ const translations = {
     source: 'Source',
     translation: 'Translation',
     retries: 'Retries',
+    showOnlyFailed: 'Show only failed chunks',
     
     // Progress Visualization
     progressOverview: 'Progress Overview',
@@ -234,6 +235,7 @@ const translations = {
     source: 'Origem',
     translation: 'Tradução',
     retries: 'Tentativas',
+    showOnlyFailed: 'Mostrar apenas partes falhadas',
     
     // Progress Visualization
     progressOverview: 'Visão Geral do Progresso',
@@ -391,6 +393,7 @@ const translations = {
     source: 'Origen',
     translation: 'Traducción',
     retries: 'Reintentos',
+    showOnlyFailed: 'Mostrar solo partes fallidas',
     
     // Progress Visualization
     progressOverview: 'Resumen del Progreso',

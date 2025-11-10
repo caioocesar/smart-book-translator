@@ -18,6 +18,8 @@ function HistoryTab({ settings, onTranslationReady }) {
   const [expandedJob, setExpandedJob] = useState(null);
   const [jobChunks, setJobChunks] = useState({});
   const [generatingDocument, setGeneratingDocument] = useState(null);
+  const [filterFailedOnly, setFilterFailedOnly] = useState(false);
+  const [outputPaths, setOutputPaths] = useState({});
 
   useEffect(() => {
     loadJobs();
@@ -133,7 +135,11 @@ function HistoryTab({ settings, onTranslationReady }) {
     try {
       const response = await axios.post(`${API_URL}/api/translation/generate/${jobId}`);
       setError('');
-      alert('Document generated successfully!');
+      // Store output path
+      if (response.data.outputPath) {
+        setOutputPaths(prev => ({ ...prev, [jobId]: response.data.outputPath }));
+      }
+      alert(`Document generated successfully!\n\nSaved to: ${response.data.outputPath || response.data.outputDirectory}/${response.data.outputFilename}`);
       loadJobs();
     } catch (err) {
       setError(`Failed to generate document: ${err.response?.data?.error || err.message}`);
@@ -160,8 +166,13 @@ function HistoryTab({ settings, onTranslationReady }) {
 
   const getOutputPath = (job) => {
     if (job.status !== 'completed') return null;
+    // Use stored output path if available, otherwise construct from settings
+    if (outputPaths[job.id]) {
+      return outputPaths[job.id];
+    }
     const outputDir = settings.outputDirectory || 'backend/outputs';
-    return `${outputDir}/translated_${job.filename}`;
+    const filename = job.filename.replace(/\.[^.]+$/, '');
+    return `${outputDir}/translated_${filename}.${job.output_format}`;
   };
 
   const getChunkStatusColor = (status) => {
@@ -191,9 +202,9 @@ function HistoryTab({ settings, onTranslationReady }) {
   if (loading && jobs.length === 0) {
     return (
       <div className="history-tab">
-        <h2>Translation History</h2>
+        <h2>{t('translationHistory')}</h2>
         <div className="loading-message">
-          <p>⏳ Loading translation history...</p>
+          <p>⏳ {t('loadingChunks')}</p>
         </div>
       </div>
     );
@@ -202,9 +213,9 @@ function HistoryTab({ settings, onTranslationReady }) {
   return (
     <div className="history-tab">
       <div className="history-header">
-        <h2>Translation History</h2>
+        <h2>{t('translationHistory')}</h2>
         <button onClick={handleRefresh} className="btn-secondary" disabled={loading}>
-          {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+          {loading ? `⏳ ${t('refreshing')}` : `🔄 ${t('refresh')}`}
         </button>
       </div>
 
@@ -212,8 +223,8 @@ function HistoryTab({ settings, onTranslationReady }) {
 
       {jobs.length === 0 ? (
         <div className="no-history">
-          <p>📭 No translation history yet</p>
-          <p className="help-text">Your completed and in-progress translations will appear here</p>
+          <p>📭 {t('noHistory')}</p>
+          <p className="help-text">{t('noHistoryHint')}</p>
         </div>
       ) : (
         <div className="jobs-table">
@@ -232,19 +243,19 @@ function HistoryTab({ settings, onTranslationReady }) {
                   </div>
                   <div className="job-details-grid">
                     <div className="detail-item">
-                      <span className="detail-label">Languages:</span>
+                      <span className="detail-label">{t('languages')}:</span>
                       <span>{job.source_language} → {job.target_language}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="detail-label">API:</span>
+                      <span className="detail-label">{t('api')}:</span>
                       <span>{job.api_provider}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="detail-label">Format:</span>
+                      <span className="detail-label">{t('format')}:</span>
                       <span>{job.output_format.toUpperCase()}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="detail-label">Started:</span>
+                      <span className="detail-label">{t('started')}:</span>
                       <span>{formatDate(job.created_at)}</span>
                     </div>
                   </div>
@@ -261,10 +272,10 @@ function HistoryTab({ settings, onTranslationReady }) {
                       />
                     </div>
                     <span className="progress-text">
-                      {job.completed_chunks} / {job.total_chunks} chunks 
+                      {job.completed_chunks} / {job.total_chunks} {t('chunks')} 
                       ({Math.round((job.completed_chunks / job.total_chunks) * 100) || 0}%)
                       {job.failed_chunks > 0 && (
-                        <span className="failed-count"> • {job.failed_chunks} failed</span>
+                        <span className="failed-count"> • {job.failed_chunks} {t('failed')}</span>
                       )}
                     </span>
                   </div>
@@ -272,7 +283,7 @@ function HistoryTab({ settings, onTranslationReady }) {
                   {/* Output Path */}
                   {job.status === 'completed' && (
                     <div className="output-path">
-                      <span className="detail-label">📁 Output:</span>
+                      <span className="detail-label">📁 {t('output')}:</span>
                       <code>{getOutputPath(job)}</code>
                     </div>
                   )}
@@ -280,7 +291,7 @@ function HistoryTab({ settings, onTranslationReady }) {
                   {/* Error Message */}
                   {job.error_message && (
                     <div className="job-error">
-                      <strong>❌ Error:</strong> {job.error_message}
+                      <strong>❌ {t('error')}:</strong> {job.error_message}
                     </div>
                   )}
                 </div>
@@ -292,9 +303,9 @@ function HistoryTab({ settings, onTranslationReady }) {
                       onClick={() => handleGenerateDocument(job.id)}
                       className="btn-small btn-success"
                       disabled={generatingDocument === job.id}
-                      title="Generate final translated document"
+                      title={t('generateDocument')}
                     >
-                      {generatingDocument === job.id ? '⏳ Generating...' : '📄 Generate Document'}
+                      {generatingDocument === job.id ? `⏳ ${t('generating')}` : `📄 ${t('generateDocument')}`}
                     </button>
                   )}
 
@@ -302,9 +313,9 @@ function HistoryTab({ settings, onTranslationReady }) {
                     <button 
                       onClick={() => handleDownload(job.id)}
                       className="btn-small btn-success"
-                      title="Download translated file"
+                      title={t('download')}
                     >
-                      ⬇️ Download
+                      ⬇️ {t('download')}
                     </button>
                   )}
 
@@ -314,54 +325,67 @@ function HistoryTab({ settings, onTranslationReady }) {
                         onClick={() => openRetryModal(job, false)}
                         className="btn-small btn-warning"
                         disabled={retryingJob === job.id}
-                        title="Retry only failed chunks"
+                        title={t('retryFailed')}
                       >
-                        {retryingJob === job.id ? '⏳' : '🔄'} Retry Failed
+                        {retryingJob === job.id ? '⏳' : '🔄'} {t('retryFailed')}
                       </button>
                       <button 
                         onClick={() => openRetryModal(job, true)}
                         className="btn-small btn-info"
                         disabled={retryingJob === job.id}
-                        title="Start translation from beginning"
+                        title={t('retryAll')}
                       >
-                        {retryingJob === job.id ? '⏳' : '🔁'} Retry All
+                        {retryingJob === job.id ? '⏳' : '🔁'} {t('retryAll')}
                       </button>
                     </>
                   )}
 
                   {job.status === 'translating' && (
                     <button className="btn-small" disabled>
-                      ⏳ In Progress...
+                      ⏳ {t('inProgress')}
                     </button>
                   )}
 
                   <button 
                     onClick={() => toggleJobExpand(job.id)}
                     className="btn-small btn-info"
-                    title="View chunk details"
+                    title={expandedJob === job.id ? t('hideDetails') : t('showDetails')}
                   >
-                    {expandedJob === job.id ? '🔼 Hide Details' : '🔽 Show Details'}
+                    {expandedJob === job.id ? `🔼 ${t('hideDetails')}` : `🔽 ${t('showDetails')}`}
                   </button>
 
                   <button 
                     onClick={() => handleDelete(job.id)}
                     className="btn-small btn-danger"
-                    title="Delete this job"
+                    title={t('deleteJob')}
                   >
-                    🗑️ Delete
+                    🗑️ {t('deleteJob')}
                   </button>
                 </div>
               </div>
 
-              {/* Chunk Details */}
+                  {/* Chunk Details */}
               {expandedJob === job.id && (
                 <div className="chunks-details">
-                  <h4>📦 Translation Chunks ({job.total_chunks} total)</h4>
+                  <div className="chunks-header">
+                    <h4>📦 {t('translationChunks')} ({job.total_chunks} {t('totalChunks')})</h4>
+                    <label className="filter-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={filterFailedOnly}
+                        onChange={(e) => setFilterFailedOnly(e.target.checked)}
+                      />
+                      {t('showOnlyFailed')}
+                    </label>
+                  </div>
                   {!jobChunks[job.id] ? (
-                    <p className="loading-message">Loading chunks...</p>
+                    <p className="loading-message">{t('loadingChunks')}</p>
                   ) : (
                     <div className="chunks-grid">
-                      {jobChunks[job.id].map(chunk => (
+                      {(filterFailedOnly 
+                        ? jobChunks[job.id].filter(chunk => chunk.status === 'failed')
+                        : jobChunks[job.id]
+                      ).map(chunk => (
                         <div 
                           key={chunk.id} 
                           className="chunk-item"

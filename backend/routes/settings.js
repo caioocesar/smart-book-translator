@@ -224,12 +224,60 @@ router.post('/check-limits', async (req, res) => {
   try {
     const { provider, apiKey, options } = req.body;
 
+    // Google doesn't need API key
+    if (provider === 'google' || provider === 'google-translate') {
+      const service = new TranslationService(provider, 'not-needed', options);
+      const limits = await service.checkLimits();
+      return res.json(limits);
+    }
+
     if (!provider || !apiKey) {
       return res.status(400).json({ error: 'Provider and API key are required' });
     }
 
     const service = new TranslationService(provider, apiKey, options);
     const limits = await service.checkLimits();
+
+    res.json(limits);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get limits for all registered APIs
+router.get('/all-limits', async (req, res) => {
+  try {
+    const allSettings = Settings.getAll();
+    const limits = {};
+
+    // Check DeepL
+    if (allSettings.deepl_api_key) {
+      try {
+        const service = new TranslationService('deepl', allSettings.deepl_api_key, {});
+        limits.deepl = await service.checkLimits();
+      } catch (err) {
+        limits.deepl = { error: err.message };
+      }
+    }
+
+    // Check OpenAI
+    if (allSettings.openai_api_key) {
+      try {
+        const options = allSettings.openai_options ? JSON.parse(allSettings.openai_options) : { model: allSettings.openai_model || 'gpt-3.5-turbo' };
+        const service = new TranslationService('openai', allSettings.openai_api_key, options);
+        limits.openai = await service.checkLimits();
+      } catch (err) {
+        limits.openai = { error: err.message };
+      }
+    }
+
+    // Google Translate (always available, no key needed)
+    try {
+      const service = new TranslationService('google', 'not-needed', {});
+      limits.google = await service.checkLimits();
+    } catch (err) {
+      limits.google = { error: err.message };
+    }
 
     res.json(limits);
   } catch (error) {

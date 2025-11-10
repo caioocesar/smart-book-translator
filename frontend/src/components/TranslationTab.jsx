@@ -16,11 +16,13 @@ function TranslationTab({ settings }) {
   const [jobs, setJobs] = useState([]);
   const [showApiHelp, setShowApiHelp] = useState(false);
   const [apiLimits, setApiLimits] = useState(null);
+  const [allApiLimits, setAllApiLimits] = useState({});
   const [error, setError] = useState('');
   const [socket, setSocket] = useState(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [refreshingLimits, setRefreshingLimits] = useState(false);
+  const [refreshingAllLimits, setRefreshingAllLimits] = useState(false);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -119,7 +121,8 @@ function TranslationTab({ settings }) {
     try {
       const response = await axios.post(`${API_URL}/api/settings/check-limits`, {
         provider: apiProvider,
-        apiKey: apiKey || 'not-needed-for-google'
+        apiKey: apiKey || 'not-needed-for-google',
+        options: apiProvider === 'openai' || apiProvider === 'chatgpt' ? { model: settings.openai_model || 'gpt-3.5-turbo' } : {}
       });
       setApiLimits(response.data);
     } catch (err) {
@@ -128,6 +131,25 @@ function TranslationTab({ settings }) {
       setRefreshingLimits(false);
     }
   };
+
+  const checkAllApiLimits = async () => {
+    setRefreshingAllLimits(true);
+    setError('');
+    
+    try {
+      const response = await axios.get(`${API_URL}/api/settings/all-limits`);
+      setAllApiLimits(response.data);
+    } catch (err) {
+      setError('Failed to check API limits: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setRefreshingAllLimits(false);
+    }
+  };
+
+  useEffect(() => {
+    // Load all API limits on mount
+    checkAllApiLimits();
+  }, []);
 
   const testApiConnection = async () => {
     // Google doesn't need an API key
