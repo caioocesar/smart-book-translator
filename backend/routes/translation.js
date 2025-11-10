@@ -293,30 +293,54 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
 
   let completed = 0;
   let failed = 0;
-
+  const maxRetries = 3;
+  
   for (const chunk of chunks) {
-    try {
-      // Add delay to respect rate limits
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    let chunkCompleted = false;
+    let attempts = 0;
+    
+    while (!chunkCompleted && attempts < maxRetries) {
+      try {
+        // Add delay to respect rate limits (longer delay for OpenAI)
+        const delay = provider === 'openai' || provider === 'chatgpt' ? 2000 : 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
 
-      const result = await translationService.translate(
-        chunk.source_text,
-        job.source_language,
-        job.target_language
-      );
+        const result = await translationService.translate(
+          chunk.source_text,
+          job.source_language,
+          job.target_language
+        );
 
-      TranslationChunk.updateTranslation(chunk.id, result.translatedText);
-      completed++;
-      TranslationJob.updateProgress(jobId, completed, failed);
-    } catch (error) {
-      console.error(`Chunk ${chunk.chunk_index} failed:`, error.message);
-      TranslationChunk.markFailed(chunk.id, error.message);
-      failed++;
-      TranslationJob.updateProgress(jobId, completed, failed);
-
-      // If rate limit error, wait longer
-      if (error.message.includes('Rate limit')) {
-        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+        TranslationChunk.updateTranslation(chunk.id, result.translatedText);
+        completed++;
+        TranslationJob.updateProgress(jobId, completed, failed);
+        chunkCompleted = true;
+      } catch (error) {
+        attempts++;
+        const isRateLimit = error.message.includes('Rate limit') || 
+                           error.message.includes('rate limit') ||
+                           error.message.includes('429');
+        
+        if (isRateLimit && attempts < maxRetries) {
+          // Exponential backoff for rate limits
+          const waitTime = Math.min(60000 * Math.pow(2, attempts - 1), 300000); // Max 5 minutes
+          console.log(`Rate limit hit for chunk ${chunk.chunk_index}, waiting ${waitTime/1000}s before retry ${attempts}/${maxRetries}`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue; // Retry this chunk
+        } else {
+          // Max retries reached or non-rate-limit error
+          console.error(`Chunk ${chunk.chunk_index} failed after ${attempts} attempts:`, error.message);
+          TranslationChunk.markFailed(chunk.id, error.message);
+          failed++;
+          TranslationJob.updateProgress(jobId, completed, failed);
+          chunkCompleted = true; // Move to next chunk
+          
+          // If rate limit and we've exhausted retries, wait before next chunk
+          if (isRateLimit) {
+            console.log('Rate limit exhausted, waiting 2 minutes before continuing...');
+            await new Promise(resolve => setTimeout(resolve, 120000));
+          }
+        }
       }
     }
   }

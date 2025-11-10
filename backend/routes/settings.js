@@ -120,6 +120,11 @@ router.post('/check-models', async (req, res) => {
 
     for (const model of modelsToTest) {
       try {
+        // Add delay between model checks to avoid rate limits
+        if (modelsToTest.indexOf(model) > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        
         // Try a minimal test request
         await openai.chat.completions.create({
           model: model,
@@ -128,9 +133,21 @@ router.post('/check-models', async (req, res) => {
         });
         availableModels.push(model);
       } catch (err) {
+        const statusCode = err.status || err.statusCode || err.response?.status;
+        
         // Model not available or no access
-        if (err.status !== 404 && err.status !== 401) {
-          // If it's not a 404 or 401, might be rate limit - assume available
+        if (statusCode === 404 || statusCode === 401) {
+          // Model doesn't exist or no access - skip it
+          continue;
+        } else if (statusCode === 429) {
+          // Rate limit - assume model is available but we hit limits
+          // Add it but note that we couldn't verify
+          availableModels.push(model);
+          console.warn(`Rate limit hit while checking ${model}, assuming available`);
+          // Wait longer before next check
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        } else {
+          // Other error - might be temporary, assume available
           availableModels.push(model);
         }
       }

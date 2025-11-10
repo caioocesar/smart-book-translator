@@ -104,11 +104,27 @@ class TranslationService {
         tokensUsed: response.usage.total_tokens
       };
     } catch (error) {
-      if (error.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait before retrying.');
-      } else if (error.status === 401) {
+      // Check for rate limit errors (429) - OpenAI SDK may structure errors differently
+      const statusCode = error.status || error.statusCode || error.response?.status;
+      
+      if (statusCode === 429) {
+        // Extract rate limit details if available
+        const errorMessage = error.message || '';
+        let rateLimitMessage = 'Rate limit exceeded. Please wait before retrying.';
+        
+        // Check for specific rate limit types
+        if (errorMessage.includes('requests per minute') || errorMessage.includes('RPM')) {
+          rateLimitMessage = 'Rate limit exceeded: Too many requests per minute. Please wait 1-2 minutes before retrying.';
+        } else if (errorMessage.includes('tokens per minute') || errorMessage.includes('TPM')) {
+          rateLimitMessage = 'Rate limit exceeded: Token limit reached. Please wait a few minutes before retrying.';
+        } else if (error.response?.data?.error?.message) {
+          rateLimitMessage = `Rate limit: ${error.response.data.error.message}`;
+        }
+        
+        throw new Error(rateLimitMessage);
+      } else if (statusCode === 401) {
         throw new Error('Invalid API key or authentication failed.');
-      } else if (error.status === 404) {
+      } else if (statusCode === 404) {
         const model = this.options.model || 'gpt-3.5-turbo';
         if (model.includes('gpt-4')) {
           throw new Error(`The model "${model}" is not available. You may not have access to GPT-4. Try using "gpt-3.5-turbo" instead in Settings.`);
@@ -116,7 +132,7 @@ class TranslationService {
           throw new Error(`The model "${model}" does not exist or you do not have access to it. Please check your OpenAI account and model selection.`);
         }
       }
-      throw new Error(`OpenAI translation failed: ${error.message}`);
+      throw new Error(`OpenAI translation failed: ${error.message || error.toString()}`);
     }
   }
 
