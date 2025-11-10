@@ -320,6 +320,9 @@ ${useHtml ? '- The text was extracted from HTML, so preserve paragraph breaks an
     // Get relevant glossary terms if not provided
     if (!glossaryTerms) {
       glossaryTerms = Glossary.getAll(sourceLang, targetLang);
+      if (glossaryTerms && glossaryTerms.length > 0) {
+        console.log(`📚 Retrieved ${glossaryTerms.length} glossary terms from database for ${sourceLang} → ${targetLang}`);
+      }
     }
 
     switch (this.provider.toLowerCase()) {
