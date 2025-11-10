@@ -12,6 +12,7 @@ import { TranslationJob, TranslationChunk } from '../models/TranslationJob.js';
 import Settings from '../models/Settings.js';
 import Logger from '../utils/logger.js';
 import RateLimiter from '../utils/rateLimiter.js';
+import { io } from '../server.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -327,9 +328,56 @@ router.get('/jobs', async (req, res) => {
 router.delete('/jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Stop any running translation (chunks will be cleaned up by CASCADE)
+    // Delete chunks explicitly to ensure cleanup
+    const deleteChunksStmt = db.prepare('DELETE FROM translation_chunks WHERE job_id = ?');
+    deleteChunksStmt.run(jobId);
+    
+    // Delete the job (this will also trigger CASCADE if foreign keys are enabled)
     TranslationJob.delete(jobId);
+    
+    // Clean up uploaded files if they exist
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    const uploadedFile = path.join(uploadsDir, `${jobId}_${job.filename}`);
+    if (fs.existsSync(uploadedFile)) {
+      try {
+        fs.unlinkSync(uploadedFile);
+      } catch (err) {
+        console.warn(`Failed to delete uploaded file for job ${jobId}:`, err);
+      }
+    }
+    
+    // Clean up output files if they exist
+    const outputsDir = path.join(__dirname, '..', 'outputs');
+    const outputFile = path.join(outputsDir, `${jobId}_translated.${job.output_format}`);
+    if (fs.existsSync(outputFile)) {
+      try {
+        fs.unlinkSync(outputFile);
+      } catch (err) {
+        console.warn(`Failed to delete output file for job ${jobId}:`, err);
+      }
+    }
+    
+    // Notify WebSocket clients to unsubscribe
+    io.to(`job-${jobId}`).emit('job-deleted', { jobId });
+    io.socketsLeave(`job-${jobId}`);
+    
+    Logger.logError('translation', `Job ${jobId} deleted`, null, {
+      jobId,
+      filename: job.filename
+    });
+    
     res.json({ message: 'Job deleted successfully' });
   } catch (error) {
+    Logger.logError('translation', 'Failed to delete job', error, {
+      jobId: req.params.jobId
+    });
     res.status(500).json({ error: error.message });
   }
 });

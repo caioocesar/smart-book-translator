@@ -134,12 +134,102 @@ function SettingsTab({ onSettingsUpdate }) {
     }
   };
 
+  // Get recommended chunk size based on configured API
+  const getRecommendedChunkSize = () => {
+    if (settings.deepl_api_key) {
+      // DeepL Free: 500k chars/month, recommend smaller chunks to avoid limits
+      // DeepL Pro: Can handle larger chunks
+      // Default recommendation: 3000-5000 for free, 5000-8000 for pro
+      return { min: 3000, max: 5000, recommended: 4000, note: 'DeepL Free: 500k chars/month limit' };
+    } else if (settings.openai_api_key) {
+      // OpenAI: Based on model context window
+      const model = settings.openai_model || 'gpt-3.5-turbo';
+      if (model.includes('gpt-4o') || model.includes('gpt-4-turbo')) {
+        return { min: 5000, max: 10000, recommended: 8000, note: 'GPT-4o/Turbo: 128K context window' };
+      } else if (model.includes('gpt-4')) {
+        return { min: 3000, max: 8000, recommended: 5000, note: 'GPT-4: 8K context window' };
+      } else {
+        return { min: 3000, max: 6000, recommended: 4000, note: 'GPT-3.5: 16K context window' };
+      }
+    } else {
+      // Google Translate: Free, recommend smaller chunks to avoid rate limits
+      return { min: 2000, max: 4000, recommended: 3000, note: 'Google Translate: Free tier, smaller chunks recommended' };
+    }
+  };
+
+  const chunkRecommendation = getRecommendedChunkSize();
+
   return (
     <div className="settings-tab">
       <h2>Settings</h2>
 
       {error && <div className="error-message">{error}</div>}
       {success && <div className="success-message">{success}</div>}
+
+      <div className="settings-section">
+        <h3>General Settings</h3>
+        <div className="form-group">
+          <label>Output Directory</label>
+          <div className="input-with-button">
+            <input
+              type="text"
+              value={settings.outputDirectory}
+              onChange={(e) => setSettings({...settings, outputDirectory: e.target.value})}
+              placeholder="Default: ./outputs"
+            />
+            <button onClick={handleSelectDirectory} className="btn-secondary">
+              📁 Browse
+            </button>
+          </div>
+          <p className="help-text">Location where translated documents will be saved</p>
+        </div>
+
+        <div className="form-group">
+          <label>Chunk Size (characters)</label>
+          <input
+            type="number"
+            value={settings.chunkSize}
+            onChange={(e) => setSettings({...settings, chunkSize: parseInt(e.target.value)})}
+            min={chunkRecommendation.min}
+            max={chunkRecommendation.max}
+          />
+          <p className="help-text">
+            <strong>Recommended: {chunkRecommendation.recommended} characters</strong> ({chunkRecommendation.note})
+            <br />
+            Range: {chunkRecommendation.min} - {chunkRecommendation.max} characters
+            <br />
+            Larger chunks = fewer API calls but may hit limits. Adjust based on your API plan.
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.autoRetryFailed !== false}
+              onChange={(e) => setSettings({...settings, autoRetryFailed: e.target.checked})}
+            />
+            <span>🔄 Auto-Retry Failed Chunks</span>
+          </label>
+          <p className="help-text">
+            Automatically retry failed chunks when their scheduled retry time arrives (default: enabled)
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.autoResumePending !== false}
+              onChange={(e) => setSettings({...settings, autoResumePending: e.target.checked})}
+            />
+            <span>▶️ Auto-Resume Pending Translations</span>
+          </label>
+          <p className="help-text">
+            Automatically resume pending translations when opening the application (default: enabled)
+          </p>
+        </div>
+      </div>
 
       <div className="settings-section">
         <h3>DeepL API Configuration</h3>
@@ -232,67 +322,6 @@ function SettingsTab({ onSettingsUpdate }) {
         </div>
         <div className="api-info">
           <p>Get your API key at: <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer">platform.openai.com</a></p>
-        </div>
-      </div>
-
-      <div className="settings-section">
-        <h3>General Settings</h3>
-        <div className="form-group">
-          <label>Output Directory</label>
-          <div className="input-with-button">
-            <input
-              type="text"
-              value={settings.outputDirectory}
-              onChange={(e) => setSettings({...settings, outputDirectory: e.target.value})}
-              placeholder="Default: ./outputs"
-            />
-            <button onClick={handleSelectDirectory} className="btn-secondary">
-              📁 Browse
-            </button>
-          </div>
-          <p className="help-text">Location where translated documents will be saved</p>
-        </div>
-
-        <div className="form-group">
-          <label>Chunk Size (characters)</label>
-          <input
-            type="number"
-            value={settings.chunkSize}
-            onChange={(e) => setSettings({...settings, chunkSize: parseInt(e.target.value)})}
-            min="500"
-            max="10000"
-          />
-          <p className="help-text">
-            Larger chunks = fewer API calls but may hit limits. Recommended: 3000-5000
-          </p>
-        </div>
-
-        <div className="form-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={settings.autoRetryFailed !== false}
-              onChange={(e) => setSettings({...settings, autoRetryFailed: e.target.checked})}
-            />
-            <span>🔄 Auto-Retry Failed Chunks</span>
-          </label>
-          <p className="help-text">
-            Automatically retry failed chunks when their scheduled retry time arrives (default: enabled)
-          </p>
-        </div>
-
-        <div className="form-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={settings.autoResumePending !== false}
-              onChange={(e) => setSettings({...settings, autoResumePending: e.target.checked})}
-            />
-            <span>▶️ Auto-Resume Pending Translations</span>
-          </label>
-          <p className="help-text">
-            Automatically resume pending translations when opening the application (default: enabled)
-          </p>
         </div>
       </div>
 
