@@ -5,6 +5,7 @@ import GlossaryTab from './components/GlossaryTab';
 import SettingsTab from './components/SettingsTab';
 import HistoryTab from './components/HistoryTab';
 import SystemStatus from './components/SystemStatus';
+import { t, getCurrentLanguage, setCurrentLanguage, getAvailableLanguages } from './utils/i18n';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -15,6 +16,8 @@ function App() {
   const [showSystemStatus, setShowSystemStatus] = useState(false);
   const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
   const [hasReadyTranslation, setHasReadyTranslation] = useState(false);
+  const [currentLanguage, setLanguage] = useState(getCurrentLanguage());
+  const [, forceUpdate] = useState();
 
   useEffect(() => {
     // Test backend connection
@@ -58,21 +61,41 @@ function App() {
     setSettings(newSettings);
   };
 
+  const handleLanguageChange = (lang) => {
+    setCurrentLanguage(lang);
+    setLanguage(lang);
+    forceUpdate({}); // Force re-render to update translations
+  };
+
   return (
     <div className="app">
       <header className="app-header">
         <div className="header-content">
-          <h1>📚 Smart Book Translator</h1>
+          <h1>📚 {t('appTitle')}</h1>
           <div className="header-actions">
+            {/* Language Selector */}
+            <select 
+              value={currentLanguage}
+              onChange={(e) => handleLanguageChange(e.target.value)}
+              className="language-selector"
+              title={t('uiLanguage')}
+            >
+              {getAvailableLanguages().map(lang => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.flag} {lang.name}
+                </option>
+              ))}
+            </select>
+
             <button 
               onClick={() => setShowSystemStatus(!showSystemStatus)}
               className="btn-system-status"
-              title="System Status & Tests"
+              title={t('systemStatus')}
             >
-              🔧 System Status
+              🔧 {t('systemStatus')}
             </button>
             <div className={`status-indicator ${apiStatus?.status === 'ok' ? 'online' : 'offline'}`}>
-              {apiStatus?.status === 'ok' ? '🟢 Online' : '🔴 Offline'}
+              {apiStatus?.status === 'ok' ? `🟢 ${t('online')}` : `🔴 ${t('offline')}`}
             </div>
           </div>
         </div>
@@ -89,26 +112,26 @@ function App() {
             className={`tab ${activeTab === 'translation' ? 'active' : ''}`}
             onClick={() => setActiveTab('translation')}
           >
-            🌐 Translation
+            🌐 {t('tabTranslation')}
           </button>
           <button
             className={`tab ${activeTab === 'history' ? 'active' : ''}`}
             onClick={() => setActiveTab('history')}
           >
-            📋 History
+            📋 {t('tabHistory')}
             {hasReadyTranslation && <span className="notification-badge">●</span>}
           </button>
           <button
             className={`tab ${activeTab === 'glossary' ? 'active' : ''}`}
             onClick={() => setActiveTab('glossary')}
           >
-            📖 Glossary
+            📖 {t('tabGlossary')}
           </button>
           <button
             className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveTab('settings')}
           >
-            ⚙️ Settings
+            ⚙️ {t('tabSettings')}
           </button>
         </div>
 

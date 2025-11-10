@@ -31,6 +31,28 @@
   gap: 1rem;
 }
 
+.language-selector {
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  color: #667eea;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.language-selector:hover {
+  background: #667eea;
+  color: white;
+}
+
+.language-selector:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+}
+
 .btn-system-status {
   padding: 0.5rem 1rem;
   background: #6c757d;

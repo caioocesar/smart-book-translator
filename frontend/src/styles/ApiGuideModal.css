@@ -1,0 +1,278 @@
+/* API Guide Modal Styles */
+
+.api-guide-modal {
+  max-width: 700px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+  z-index: 10;
+  transition: color 0.3s ease;
+}
+
+.modal-close:hover {
+  color: #dc3545;
+}
+
+.guide-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 3px solid #667eea;
+}
+
+.guide-icon {
+  font-size: 3rem;
+}
+
+.guide-header h2 {
+  color: #667eea;
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.guide-content {
+  margin-bottom: 1.5rem;
+}
+
+/* Steps */
+.guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.guide-step {
+  background: #f8f9fa;
+  padding: 1.25rem;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.guide-step:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.guide-step h3 {
+  color: #495057;
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+}
+
+.guide-step p {
+  color: #6c757d;
+  line-height: 1.6;
+  margin-bottom: 0.75rem;
+}
+
+.step-details {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.75rem 0;
+}
+
+.step-details li {
+  padding: 0.4rem 0;
+  color: #495057;
+  line-height: 1.5;
+}
+
+.step-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #667eea;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: background 0.3s ease;
+}
+
+.step-link:hover {
+  background: #764ba2;
+}
+
+.step-note {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #fff3cd;
+  border-left: 4px solid #ffc107;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+/* Pricing */
+.guide-pricing {
+  background: #e7f3ff;
+  padding: 1.25rem;
+  border-radius: 8px;
+  margin-top: 1.5rem;
+  border: 2px solid #667eea;
+}
+
+.guide-pricing h3 {
+  color: #667eea;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.pricing-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pricing-item {
+  padding: 0.5rem 0;
+  color: #495057;
+  line-height: 1.5;
+}
+
+.pricing-item strong {
+  color: #667eea;
+}
+
+.pricing-item.estimate {
+  background: white;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border-left: 4px solid #28a745;
+}
+
+.pricing-note {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 6px;
+  color: #495057;
+  font-style: italic;
+}
+
+/* Links */
+.guide-links {
+  background: #f8f9fa;
+  padding: 1.25rem;
+  border-radius: 8px;
+  margin-top: 1.5rem;
+}
+
+.guide-links h3 {
+  color: #495057;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.guide-link-item {
+  display: inline-block;
+  padding: 0.6rem 1rem;
+  background: white;
+  color: #667eea;
+  text-decoration: none;
+  border-radius: 6px;
+  border: 2px solid #667eea;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.guide-link-item:hover {
+  background: #667eea;
+  color: white;
+  transform: translateX(4px);
+}
+
+/* Footer */
+.guide-footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 2px solid #e9ecef;
+  display: flex;
+  justify-content: center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .api-guide-modal {
+    max-width: 95vw;
+    max-height: 90vh;
+    padding: 1rem;
+  }
+
+  .guide-header {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .guide-icon {
+    font-size: 2.5rem;
+  }
+
+  .guide-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .guide-step {
+    padding: 1rem;
+  }
+
+  .guide-step h3 {
+    font-size: 1rem;
+  }
+
+  .step-link {
+    font-size: 0.9rem;
+    padding: 0.4rem 0.8rem;
+  }
+
+  .pricing-item,
+  .guide-link-item {
+    font-size: 0.9rem;
+  }
+}
+
+/* Print */
+@media print {
+  .modal-close,
+  .guide-footer {
+    display: none;
+  }
+
+  .api-guide-modal {
+    max-height: none;
+    box-shadow: none;
+    border: 1px solid #dee2e6;
+  }
+
+  .step-link,
+  .guide-link-item {
+    background: white;
+    color: #667eea;
+  }
+}
+
