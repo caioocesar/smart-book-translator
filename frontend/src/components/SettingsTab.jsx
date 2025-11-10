@@ -186,7 +186,7 @@ function SettingsTab({ onSettingsUpdate }) {
         </div>
 
         <div className="form-group">
-          <label>Chunk Size (characters)</label>
+          <label>{t('chunkSizeCharacters')}</label>
           <input
             type="number"
             value={settings.chunkSize}
@@ -233,7 +233,7 @@ function SettingsTab({ onSettingsUpdate }) {
       </div>
 
       <div className="settings-section">
-        <h3>DeepL API Configuration</h3>
+        <h3>{t('deeplApiConfiguration')}</h3>
         <div className="form-group">
           <label>API Key</label>
           <div className="input-with-test">
@@ -241,7 +241,7 @@ function SettingsTab({ onSettingsUpdate }) {
               type="password"
               value={settings.deepl_api_key}
               onChange={(e) => setSettings({...settings, deepl_api_key: e.target.value})}
-              placeholder="Enter DeepL API key"
+              placeholder={t('enterDeeplApiKey')}
             />
             <button 
               onClick={() => handleTestApi('deepl')} 
@@ -266,7 +266,7 @@ function SettingsTab({ onSettingsUpdate }) {
       </div>
 
       <div className="settings-section">
-        <h3>OpenAI API Configuration</h3>
+        <h3>{t('openaiApiConfiguration')}</h3>
         <div className="form-group">
           <label>API Key</label>
           <div className="input-with-test">
@@ -274,7 +274,7 @@ function SettingsTab({ onSettingsUpdate }) {
               type="password"
               value={settings.openai_api_key}
               onChange={(e) => setSettings({...settings, openai_api_key: e.target.value})}
-              placeholder="Enter OpenAI API key"
+              placeholder={t('enterOpenaiApiKey')}
             />
             <button 
               onClick={() => handleTestApi('openai')} 
@@ -332,7 +332,7 @@ function SettingsTab({ onSettingsUpdate }) {
           className="btn-primary"
           disabled={loading}
         >
-          {loading ? 'Saving...' : '💾 Save Settings'}
+          {loading ? t('saving') : `💾 ${t('saveSettings')}`}
         </button>
       </div>
 

@@ -125,16 +125,28 @@ const translations = {
     search: 'Search',
     
     // Settings Tab
+    generalSettings: 'General Settings',
     apiConfiguration: 'API Configuration',
+    deeplApiConfiguration: 'DeepL API Configuration',
+    openaiApiConfiguration: 'OpenAI API Configuration',
     deeplApiKey: 'DeepL API Key',
     openaiApiKey: 'OpenAI API Key',
     chatgptApiKey: 'ChatGPT API Key',
     outputDirectory: 'Output Directory',
     chunkSize: 'Chunk Size',
+    chunkSizeCharacters: 'Chunk Size (characters)',
     autoRetryFailed: 'Auto-Retry Failed Chunks',
     autoResumePending: 'Auto-Resume Pending Translations',
     saveSettings: 'Save Settings',
+    saving: 'Saving...',
     getCredentials: 'How to get credentials',
+    enterDeeplApiKey: 'Enter DeepL API key',
+    enterOpenaiApiKey: 'Enter OpenAI API key',
+    checking: 'Checking',
+    sameAsInput: 'Same as input',
+    plainText: 'Plain Text (.txt)',
+    wordDocument: 'Word Document (.docx)',
+    epubFormat: 'EPUB (.epub)',
     
     // API Help Guides
     apiHelpTitle: 'How to Get API Credentials',

@@ -374,10 +374,10 @@ function TranslationTab({ settings }) {
           <div className="form-group">
             <label>{t('outputFormat')}</label>
             <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)}>
-              <option value="">Same as input</option>
-              <option value="txt">Plain Text (.txt)</option>
-              <option value="docx">Word Document (.docx)</option>
-              <option value="epub">EPUB (.epub)</option>
+              <option value="">{t('sameAsInput')}</option>
+              <option value="txt">{t('plainText')}</option>
+              <option value="docx">{t('wordDocument')}</option>
+              <option value="epub">{t('epubFormat')}</option>
             </select>
           </div>
 
