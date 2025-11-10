@@ -69,7 +69,9 @@ function initDatabase() {
       job_id TEXT NOT NULL,
       chunk_index INTEGER NOT NULL,
       source_text TEXT NOT NULL,
+      source_html TEXT,
       translated_text TEXT,
+      translated_html TEXT,
       status TEXT NOT NULL,
       retry_count INTEGER DEFAULT 0,
       error_message TEXT,
@@ -80,6 +82,18 @@ function initDatabase() {
       UNIQUE(job_id, chunk_index)
     )
   `);
+  
+  // Add HTML columns if they don't exist (for existing databases)
+  try {
+    db.exec(`ALTER TABLE translation_chunks ADD COLUMN source_html TEXT`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
+  try {
+    db.exec(`ALTER TABLE translation_chunks ADD COLUMN translated_html TEXT`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
   
   // Add next_retry_at column if it doesn't exist (for existing databases)
   try {

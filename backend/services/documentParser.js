@@ -157,11 +157,14 @@ class DocumentParser {
   }
 
   static async parseDOCX(filePath) {
-    const result = await mammoth.extractRawText({ path: filePath });
+    // Extract both HTML (for formatting) and plain text (for fallback)
+    const htmlResult = await mammoth.convertToHtml({ path: filePath });
+    const textResult = await mammoth.extractRawText({ path: filePath });
     return {
-      text: result.value,
+      text: textResult.value,
+      html: htmlResult.value, // Preserve HTML formatting
       metadata: {
-        messages: result.messages
+        messages: textResult.messages
       }
     };
   }
@@ -181,6 +184,7 @@ class DocumentParser {
 
         const epub = new EPub(filePath);
         let fullText = '';
+        let fullHtml = ''; // Preserve HTML formatting
         let hasError = false;
         
         epub.on('error', (err) => {
@@ -210,7 +214,7 @@ class DocumentParser {
                   chapterErrors++;
                   console.warn(`Error reading chapter ${index} (${chapter.id}):`, error.message);
                 } else if (text) {
-                  // Remove HTML tags but preserve line breaks
+                  // Preserve HTML for formatting, but also extract plain text for fallback
                   const cleanText = text
                     .replace(/<[^>]*>/g, ' ')
                     .replace(/\n\s*\n/g, '\n\n') // Preserve paragraph breaks
@@ -218,6 +222,7 @@ class DocumentParser {
                     .trim();
                   if (cleanText.length > 0) {
                     fullText += cleanText + '\n\n';
+                    fullHtml += text + '\n\n'; // Preserve original HTML
                   }
                 }
 
@@ -232,6 +237,7 @@ class DocumentParser {
                   } else {
                     resolve({
                       text: fullText.trim(),
+                      html: fullHtml.trim(), // Preserve HTML formatting
                       metadata: {
                         title: epub.metadata?.title || 'Unknown',
                         author: epub.metadata?.creator || 'Unknown',

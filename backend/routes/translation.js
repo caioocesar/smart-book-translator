@@ -103,6 +103,12 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     }
 
     const chunks = DocumentParser.splitIntoChunks(parsed.text);
+    let htmlChunks = [];
+    
+    // If HTML is available, split it intelligently preserving tags
+    if (parsed.html) {
+      htmlChunks = DocumentParser.splitHtmlIntoChunks(parsed.html, chunks.length);
+    }
 
     if (chunks.length === 0) {
       Logger.logError('upload', 'No chunks created from document', null, {
@@ -122,9 +128,10 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       chunks.length
     );
 
-    // Store chunks
+    // Store chunks with HTML if available
     chunks.forEach((chunk, index) => {
-      TranslationChunk.add(jobId, index, chunk);
+      const htmlChunk = htmlChunks[index] || null;
+      TranslationChunk.add(jobId, index, chunk, htmlChunk);
     });
 
     // Clean up uploaded file
@@ -483,10 +490,17 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         const result = await translationService.translate(
           chunk.source_text,
           job.source_language,
-          job.target_language
+          job.target_language,
+          [],
+          chunk.source_html || null
         );
 
-        TranslationChunk.updateTranslation(chunk.id, result.translatedText);
+        TranslationChunk.updateTranslation(
+          chunk.id, 
+          result.translatedText || chunk.source_text, // Fallback to source if HTML was used
+          'completed',
+          result.translatedHtml || null
+        );
         completed++;
         TranslationJob.updateProgress(jobId, completed, failed);
         

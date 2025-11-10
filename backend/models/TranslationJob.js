@@ -52,13 +52,13 @@ class TranslationJob {
 }
 
 class TranslationChunk {
-  static add(jobId, chunkIndex, sourceText) {
+  static add(jobId, chunkIndex, sourceText, sourceHtml = null) {
     const stmt = db.prepare(`
       INSERT INTO translation_chunks 
-      (job_id, chunk_index, source_text, status)
-      VALUES (?, ?, ?, 'pending')
+      (job_id, chunk_index, source_text, source_html, status)
+      VALUES (?, ?, ?, ?, 'pending')
     `);
-    const result = stmt.run(jobId, chunkIndex, sourceText);
+    const result = stmt.run(jobId, chunkIndex, sourceText, sourceHtml);
     return result.lastInsertRowid;
   }
 
@@ -80,13 +80,13 @@ class TranslationChunk {
     return stmt.all(jobId);
   }
 
-  static updateTranslation(id, translatedText, status = 'completed') {
+  static updateTranslation(id, translatedText, status = 'completed', translatedHtml = null) {
     const stmt = db.prepare(`
       UPDATE translation_chunks 
-      SET translated_text = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+      SET translated_text = ?, translated_html = ?, status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
-    stmt.run(translatedText, status, id);
+    stmt.run(translatedText, translatedHtml, status, id);
   }
 
   static markFailed(id, errorMessage, isRateLimit = false) {

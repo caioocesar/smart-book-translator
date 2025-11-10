@@ -16,25 +16,35 @@ class TranslationService {
     }
   }
 
-  async translateWithDeepL(text, sourceLang, targetLang, glossaryTerms = []) {
+  async translateWithDeepL(text, sourceLang, targetLang, glossaryTerms = [], html = null) {
     try {
       const url = 'https://api-free.deepl.com/v2/translate';
       
+      // Use HTML if available (preserves formatting)
+      const useHtml = html && html.trim().length > 0;
+      const inputText = useHtml ? html : text;
+      
       // Apply glossary replacements before translation
-      let preprocessedText = text;
+      let preprocessedText = inputText;
       for (const term of glossaryTerms) {
         const regex = new RegExp(term.source_term, 'gi');
         preprocessedText = preprocessedText.replace(regex, `[[${term.source_term}]]`);
       }
       
-      const response = await axios.post(url, null, {
-        params: {
-          auth_key: this.apiKey,
-          text: preprocessedText,
-          source_lang: sourceLang.toUpperCase(),
-          target_lang: targetLang.toUpperCase()
-        }
-      });
+      const params = {
+        auth_key: this.apiKey,
+        text: preprocessedText,
+        source_lang: sourceLang.toUpperCase(),
+        target_lang: targetLang.toUpperCase()
+      };
+      
+      // If using HTML, tell DeepL to preserve tags
+      if (useHtml) {
+        params.tag_handling = 'xml';
+        params.ignore_tags = 'code,pre'; // Preserve code blocks
+      }
+      
+      const response = await axios.post(url, null, { params });
 
       let translatedText = response.data.translations[0].text;
       
@@ -44,11 +54,12 @@ class TranslationService {
         translatedText = translatedText.replace(regex, term.target_term);
       }
 
-      // Track usage
+      // Track usage (use text length, not HTML)
       ApiUsage.track('deepl', text.length, 1);
 
       return {
-        translatedText,
+        translatedText: useHtml ? null : translatedText, // Return null if HTML was used
+        translatedHtml: useHtml ? translatedText : null, // Return HTML if HTML was used
         detectedSourceLang: response.data.translations[0].detected_source_language,
         charactersUsed: text.length
       };
@@ -244,18 +255,22 @@ IMPORTANT: Preserve ALL formatting exactly as it appears:
     }
   }
 
-  async translate(text, sourceLang, targetLang) {
-    // Get relevant glossary terms
-    const glossaryTerms = Glossary.getAll(sourceLang, targetLang);
+  async translate(text, sourceLang, targetLang, glossaryTerms = null, html = null) {
+    // Get relevant glossary terms if not provided
+    if (!glossaryTerms) {
+      glossaryTerms = Glossary.getAll(sourceLang, targetLang);
+    }
 
     switch (this.provider.toLowerCase()) {
       case 'deepl':
-        return await this.translateWithDeepL(text, sourceLang, targetLang, glossaryTerms);
+        return await this.translateWithDeepL(text, sourceLang, targetLang, glossaryTerms, html);
       case 'openai':
       case 'chatgpt':
+        // OpenAI doesn't support HTML tag handling like DeepL, use text
         return await this.translateWithOpenAI(text, sourceLang, targetLang, glossaryTerms);
       case 'google':
       case 'google-translate':
+        // Google Translate doesn't support HTML, use text
         return await this.translateWithGoogle(text, sourceLang, targetLang, glossaryTerms);
       default:
         throw new Error(`Unsupported translation provider: ${this.provider}`);
