@@ -10,3 +10,4 @@ temp/
 dist/
 .port-info.json
 .pids
+backend/logs/
