@@ -20,12 +20,19 @@ function HistoryTab({ settings, onTranslationReady }) {
   const [jobChunks, setJobChunks] = useState({});
   const [generatingDocument, setGeneratingDocument] = useState(null);
   const [filterFailedOnly, setFilterFailedOnly] = useState(false);
+  const [chunkStatusFilter, setChunkStatusFilter] = useState('all');
   const [outputPaths, setOutputPaths] = useState({});
+  const [storageInfo, setStorageInfo] = useState(null);
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
 
   useEffect(() => {
     loadJobs();
+    loadStorageInfo();
     // Refresh every 10 seconds
-    const interval = setInterval(loadJobs, 10000);
+    const interval = setInterval(() => {
+      loadJobs();
+      loadStorageInfo();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -56,6 +63,32 @@ function HistoryTab({ settings, onTranslationReady }) {
       setJobChunks(prev => ({ ...prev, [jobId]: response.data }));
     } catch (err) {
       console.error('Failed to load chunks:', err);
+    }
+  };
+
+  const loadStorageInfo = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/translation/storage-info`);
+      setStorageInfo(response.data);
+    } catch (err) {
+      console.error('Failed to load storage info:', err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm(t('clearAllConfirm'))) {
+      return;
+    }
+    
+    try {
+      await axios.delete(`${API_URL}/api/translation/clear-all`);
+      setError('');
+      alert(t('clearAllSuccess'));
+      loadJobs();
+      loadStorageInfo();
+      setShowClearAllModal(false);
+    } catch (err) {
+      setError(t('clearAllFailed') + ': ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -166,6 +199,7 @@ function HistoryTab({ settings, onTranslationReady }) {
   };
 
   const formatRetryTime = (dateString) => {
+    if (!dateString) return t('notScheduled');
     const retryDate = new Date(dateString);
     const now = new Date();
     const diffMs = retryDate - now;
@@ -177,10 +211,31 @@ function HistoryTab({ settings, onTranslationReady }) {
     const diffMins = Math.floor(diffMs / 60000);
     const diffSecs = Math.floor((diffMs % 60000) / 1000);
     
-    if (diffMins > 0) {
-      return `${diffMins} ${t('minutes')} ${diffSecs} ${t('seconds')}`;
+    if (diffMins > 60) {
+      const diffHours = Math.floor(diffMins / 60);
+      const remainingMins = diffMins % 60;
+      return `${diffHours}h ${remainingMins}${t('minutes')}`;
+    } else if (diffMins > 0) {
+      return `${diffMins}${t('minutes')} ${diffSecs}${t('seconds')}`;
     } else {
-      return `${diffSecs} ${t('seconds')}`;
+      return `${diffSecs}${t('seconds')}`;
+    }
+  };
+
+  const formatStorageSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const kb = bytes / 1024;
+    const mb = kb / 1024;
+    const gb = mb / 1024;
+    
+    if (gb >= 1) {
+      return `${gb.toFixed(2)} GB`;
+    } else if (mb >= 1) {
+      return `${mb.toFixed(2)} MB`;
+    } else if (kb >= 1) {
+      return `${kb.toFixed(2)} KB`;
+    } else {
+      return `${bytes} B`;
     }
   };
 
@@ -257,9 +312,24 @@ function HistoryTab({ settings, onTranslationReady }) {
     <div className="history-tab">
       <div className="history-header">
         <h2>{t('translationHistory')}</h2>
-        <button onClick={handleRefresh} className="btn-secondary" disabled={loading}>
-          {loading ? `⏳ ${t('refreshing')}` : `🔄 ${t('refresh')}`}
-        </button>
+        <div className="header-actions">
+          {storageInfo && (
+            <div className="storage-info">
+              <span className="storage-label">💾 {t('storageUsed')}:</span>
+              <span className="storage-value">{formatStorageSize(storageInfo.totalSize)}</span>
+            </div>
+          )}
+          <button 
+            onClick={() => setShowClearAllModal(true)}
+            className="btn-small btn-danger"
+            title={t('clearAllData')}
+          >
+            🗑️ {t('clearAll')}
+          </button>
+          <button onClick={handleRefresh} className="btn-secondary" disabled={loading}>
+            {loading ? `⏳ ${t('refreshing')}` : `🔄 ${t('refresh')}`}
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-message">{error}</div>}
@@ -419,22 +489,45 @@ function HistoryTab({ settings, onTranslationReady }) {
                 <div className="chunks-details">
                   <div className="chunks-header">
                     <h4>📦 {t('translationChunks')} ({job.total_chunks} {t('totalChunks')})</h4>
-                    <label className="filter-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={filterFailedOnly}
-                        onChange={(e) => setFilterFailedOnly(e.target.checked)}
-                      />
-                      {t('showOnlyFailed')}
-                    </label>
+                    <div className="chunk-filters">
+                      <label className="filter-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={filterFailedOnly && chunkStatusFilter === 'all'}
+                          onChange={(e) => {
+                            setFilterFailedOnly(e.target.checked);
+                            if (e.target.checked) {
+                              setChunkStatusFilter('failed');
+                            } else {
+                              setChunkStatusFilter('all');
+                            }
+                          }}
+                        />
+                        {t('showOnlyFailed')}
+                      </label>
+                      <select
+                        value={chunkStatusFilter}
+                        onChange={(e) => {
+                          setChunkStatusFilter(e.target.value);
+                          setFilterFailedOnly(e.target.value === 'failed');
+                        }}
+                        className="chunk-status-filter"
+                      >
+                        <option value="all">{t('allStatuses')}</option>
+                        <option value="pending">{t('pending')}</option>
+                        <option value="translating">{t('translating')}</option>
+                        <option value="completed">{t('completed')}</option>
+                        <option value="failed">{t('failed')}</option>
+                      </select>
+                    </div>
                   </div>
                   {!jobChunks[job.id] ? (
                     <p className="loading-message">{t('loadingChunks')}</p>
                   ) : (
                     <div className="chunks-grid">
-                      {(filterFailedOnly 
-                        ? jobChunks[job.id].filter(chunk => chunk.status === 'failed')
-                        : jobChunks[job.id]
+                      {(chunkStatusFilter === 'all'
+                        ? jobChunks[job.id]
+                        : jobChunks[job.id].filter(chunk => chunk.status === chunkStatusFilter)
                       ).map(chunk => (
                         <div 
                           key={chunk.id} 
@@ -483,6 +576,11 @@ function HistoryTab({ settings, onTranslationReady }) {
                               )}
                             </div>
                           )}
+                          {chunk.status === 'failed' && chunk.next_retry_at && (
+                            <div className="chunk-retry-info">
+                              ⏰ {t('nextRetry')}: {formatRetryTime(chunk.next_retry_at)}
+                            </div>
+                          )}
                           {chunk.status === 'pending' && (
                             <div className="chunk-pending-info">
                               ⏳ {t('pending')} - {t('willProcessSoon')}
@@ -496,6 +594,30 @@ function HistoryTab({ settings, onTranslationReady }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Clear All Modal */}
+      {showClearAllModal && (
+        <div className="modal-overlay" onClick={() => setShowClearAllModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>⚠️ {t('clearAllData')}</h3>
+            <p>{t('clearAllWarning')}</p>
+            <div className="modal-actions">
+              <button 
+                onClick={handleClearAll}
+                className="btn-danger"
+              >
+                🗑️ {t('clearAllConfirm')}
+              </button>
+              <button 
+                onClick={() => setShowClearAllModal(false)}
+                className="btn-secondary"
+              >
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -582,6 +582,120 @@ router.post('/generate/:jobId', async (req, res) => {
   }
 });
 
+// Get storage information
+router.get('/storage-info', async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    
+    // Calculate database size
+    const dbPath = path.join(__dirname, '..', 'database', 'translations.db');
+    let dbSize = 0;
+    if (fs.existsSync(dbPath)) {
+      const stats = fs.statSync(dbPath);
+      dbSize = stats.size;
+    }
+    
+    // Calculate uploads directory size
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    let uploadsSize = 0;
+    if (fs.existsSync(uploadsDir)) {
+      const files = fs.readdirSync(uploadsDir);
+      for (const file of files) {
+        const filePath = path.join(uploadsDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (stats.isFile()) {
+            uploadsSize += stats.size;
+          }
+        } catch (e) {
+          // Skip files that can't be accessed
+        }
+      }
+    }
+    
+    // Calculate outputs directory size
+    const outputsDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
+    let outputsSize = 0;
+    if (fs.existsSync(outputsDir)) {
+      const files = fs.readdirSync(outputsDir);
+      for (const file of files) {
+        const filePath = path.join(outputsDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (stats.isFile()) {
+            outputsSize += stats.size;
+          }
+        } catch (e) {
+          // Skip files that can't be accessed
+        }
+      }
+    }
+    
+    const totalSize = dbSize + uploadsSize + outputsSize;
+    
+    res.json({
+      dbSize,
+      uploadsSize,
+      outputsSize,
+      totalSize,
+      breakdown: {
+        database: dbSize,
+        uploads: uploadsSize,
+        outputs: outputsSize
+      }
+    });
+  } catch (error) {
+    console.error('Error calculating storage info:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear all data
+router.delete('/clear-all', async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    
+    // Delete all jobs and chunks (cascade will handle chunks)
+    db.exec('DELETE FROM translation_jobs');
+    
+    // Clear uploads directory
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (fs.existsSync(uploadsDir)) {
+      const files = fs.readdirSync(uploadsDir);
+      for (const file of files) {
+        const filePath = path.join(uploadsDir, file);
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          console.error(`Failed to delete ${filePath}:`, e);
+        }
+      }
+    }
+    
+    // Note: We don't delete outputs directory as user might want to keep translated files
+    // But we can add an option for that later
+    
+    res.json({ 
+      success: true, 
+      message: 'All translation data cleared successfully',
+      note: 'Output files were not deleted. Delete them manually if needed.'
+    });
+  } catch (error) {
+    console.error('Error clearing all data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Open directory in file manager
 router.post('/open-directory', async (req, res) => {
   try {

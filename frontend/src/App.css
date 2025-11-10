@@ -782,6 +782,67 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2rem;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.history-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.storage-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #e7f3ff;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.storage-label {
+  color: #6c757d;
+  font-weight: 600;
+}
+
+.storage-value {
+  color: #17a2b8;
+  font-weight: 700;
+}
+
+.chunk-filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.chunk-status-filter {
+  padding: 0.5rem 1rem;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  background: white;
+  color: #667eea;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.chunk-status-filter:hover {
+  background: #667eea;
+  color: white;
+}
+
+.chunk-retry-info {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #fff3cd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #856404;
+  font-weight: 600;
 }
 
 .no-history {
