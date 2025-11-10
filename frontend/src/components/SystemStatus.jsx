@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { t } from '../utils/i18n.js';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 

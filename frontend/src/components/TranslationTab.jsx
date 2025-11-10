@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
+import { t } from '../utils/i18n.js';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -303,7 +304,7 @@ function TranslationTab({ settings }) {
   return (
     <div className="translation-tab">
       <div className="upload-section">
-        <h2>Translate Document</h2>
+        <h2>{t('uploadDocument')}</h2>
         
         <div 
           className="drop-zone"
@@ -325,8 +326,8 @@ function TranslationTab({ settings }) {
               </div>
             ) : (
               <div>
-                <p>📁 Drop file here or click to browse</p>
-                <p className="file-types">Supports: PDF, DOCX, EPUB</p>
+                <p>📁 {t('dragDropHint')}</p>
+                <p className="file-types">{t('supportedFormats')}</p>
               </div>
             )}
           </label>
@@ -334,7 +335,7 @@ function TranslationTab({ settings }) {
 
         <div className="form-grid">
           <div className="form-group">
-            <label>Source Language</label>
+            <label>{t('sourceLanguage')}</label>
             <select value={sourceLanguage} onChange={(e) => setSourceLanguage(e.target.value)}>
               {languages.map(lang => (
                 <option key={lang.code} value={lang.code}>{lang.name}</option>
@@ -343,7 +344,7 @@ function TranslationTab({ settings }) {
           </div>
 
           <div className="form-group">
-            <label>Target Language</label>
+            <label>{t('targetLanguage')}</label>
             <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
               {languages.map(lang => (
                 <option key={lang.code} value={lang.code}>{lang.name}</option>
@@ -352,13 +353,13 @@ function TranslationTab({ settings }) {
           </div>
 
           <div className="form-group">
-            <label>Translation API</label>
+            <label>{t('translationAPI')}</label>
             <div className="input-with-help">
               <select value={apiProvider} onChange={(e) => setApiProvider(e.target.value)}>
-                <option value="google">Google Translate (Free - No Key Needed!)</option>
-                <option value="deepl">DeepL</option>
-                <option value="openai">OpenAI</option>
-                <option value="chatgpt">ChatGPT</option>
+                <option value="google">{t('providerGoogle')}</option>
+                <option value="deepl">{t('providerDeepL')}</option>
+                <option value="openai">{t('providerOpenAI')}</option>
+                <option value="chatgpt">{t('providerChatGPT')}</option>
               </select>
               <button 
                 className="help-btn"
@@ -371,7 +372,7 @@ function TranslationTab({ settings }) {
           </div>
 
           <div className="form-group">
-            <label>Output Format</label>
+            <label>{t('outputFormat')}</label>
             <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)}>
               <option value="">Same as input</option>
               <option value="txt">Plain Text (.txt)</option>
@@ -381,7 +382,7 @@ function TranslationTab({ settings }) {
           </div>
 
           <div className="form-group full-width">
-            <label>API Key 🔐 {apiProvider === 'google' && <span className="free-badge">FREE - No Key Required!</span>}</label>
+            <label>{t('apiKey')} 🔐 {apiProvider === 'google' && <span className="free-badge">{t('noApiKey')}</span>}</label>
             <div className="input-with-test">
               <input
                 type="password"
@@ -390,7 +391,7 @@ function TranslationTab({ settings }) {
                   setApiKey(e.target.value);
                   setConnectionTestResult(null);
                 }}
-                placeholder={apiProvider === 'google' ? 'No API key needed for Google Translate' : 'Enter your API key (encrypted locally)'}
+                placeholder={apiProvider === 'google' ? t('noApiKey') : t('apiKeyPlaceholder')}
                 disabled={apiProvider === 'google'}
               />
               <button 
@@ -398,7 +399,7 @@ function TranslationTab({ settings }) {
                 className="btn-small btn-test"
                 disabled={(apiProvider !== 'google' && !apiKey) || testingConnection}
               >
-                {testingConnection ? '⏳ Testing...' : '🔌 Test'}
+                {testingConnection ? `⏳ ${t('testing')}...` : `🔌 ${t('testConnection')}`}
               </button>
             </div>
             {connectionTestResult && (
@@ -419,14 +420,14 @@ function TranslationTab({ settings }) {
 
         <div className="action-buttons">
           <button onClick={handleUpload} className="btn-primary" disabled={!file || (apiProvider !== 'google' && !apiKey)}>
-            🚀 Start Translation
+            🚀 {t('startTranslation')}
           </button>
           <button 
             onClick={checkApiLimits} 
             className="btn-secondary btn-check-limits" 
             disabled={(apiProvider !== 'google' && !apiKey) || refreshingLimits}
           >
-            {refreshingLimits ? '⏳ Checking...' : '📊 Check API Limits'}
+            {refreshingLimits ? `⏳ ${t('checking')}...` : `📊 ${t('refreshLimits')}`}
           </button>
         </div>
 

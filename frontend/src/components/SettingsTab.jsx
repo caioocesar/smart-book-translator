@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { t } from '../utils/i18n.js';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -161,7 +162,7 @@ function SettingsTab({ onSettingsUpdate }) {
 
   return (
     <div className="settings-tab">
-      <h2>Settings</h2>
+      <h2>{t('tabSettings')}</h2>
 
       {error && <div className="error-message">{error}</div>}
       {success && <div className="success-message">{success}</div>}
