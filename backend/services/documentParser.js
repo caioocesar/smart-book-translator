@@ -1,6 +1,6 @@
 import mammoth from 'mammoth';
 import pdfParse from 'pdf-parse';
-import EPub from 'epub-parser';
+import EPub from 'epub';
 import fs from 'fs';
 
 class DocumentParser {
@@ -77,32 +77,61 @@ class DocumentParser {
   }
 
   static async parseEPUB(filePath) {
-    try {
-      const epub = await EPub.parse(filePath);
-      let fullText = '';
-      
-      // Extract text from all sections
-      if (epub.sections) {
-        for (const section of epub.sections) {
-          if (section.htmlString) {
-            // Remove HTML tags
-            const text = section.htmlString.replace(/<[^>]*>/g, '');
-            fullText += text + '\n\n';
+    return new Promise((resolve, reject) => {
+      try {
+        const epub = new EPub(filePath);
+        let fullText = '';
+        
+        epub.on('error', (err) => {
+          reject(new Error(`EPUB parsing error: ${err.message}`));
+        });
+
+        epub.on('end', () => {
+          // Get the spine (reading order)
+          const spine = epub.flow;
+          let processedChapters = 0;
+
+          if (!spine || spine.length === 0) {
+            resolve({
+              text: '',
+              metadata: {
+                title: epub.metadata?.title || 'Unknown',
+                author: epub.metadata?.creator || 'Unknown',
+                language: epub.metadata?.language || 'en'
+              }
+            });
+            return;
           }
-        }
+
+          spine.forEach((chapter, index) => {
+            epub.getChapter(chapter.id, (error, text) => {
+              if (!error && text) {
+                // Remove HTML tags
+                const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                fullText += cleanText + '\n\n';
+              }
+
+              processedChapters++;
+
+              if (processedChapters === spine.length) {
+                resolve({
+                  text: fullText,
+                  metadata: {
+                    title: epub.metadata?.title || 'Unknown',
+                    author: epub.metadata?.creator || 'Unknown',
+                    language: epub.metadata?.language || 'en'
+                  }
+                });
+              }
+            });
+          });
+        });
+
+        epub.parse();
+      } catch (error) {
+        reject(new Error(`EPUB parsing error: ${error.message}`));
       }
-      
-      return {
-        text: fullText,
-        metadata: {
-          title: epub.metadata?.title || 'Unknown',
-          author: epub.metadata?.creator || 'Unknown',
-          language: epub.metadata?.language || 'en'
-        }
-      };
-    } catch (error) {
-      throw new Error(`EPUB parsing error: ${error.message}`);
-    }
+    });
   }
 
   static async parse(filePath, fileType) {
