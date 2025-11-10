@@ -18,9 +18,13 @@ class TranslationService {
 
   async translateWithDeepL(text, sourceLang, targetLang, glossaryTerms = [], html = null) {
     try {
+      // Determine API endpoint based on API key (free vs paid)
+      // Free API keys start with specific patterns, but we'll default to free endpoint
+      // Users with paid plans should use api.deepl.com
       const url = 'https://api-free.deepl.com/v2/translate';
       
       // Use HTML if available (preserves formatting)
+      // According to DeepL docs: https://developers.deepl.com/docs/xml-and-html-handling/html
       const useHtml = html && html.trim().length > 0;
       const inputText = useHtml ? html : text;
       
@@ -38,10 +42,12 @@ class TranslationService {
         target_lang: targetLang.toUpperCase()
       };
       
-      // If using HTML, tell DeepL to preserve tags
+      // If using HTML, configure DeepL to preserve formatting
+      // Reference: https://developers.deepl.com/docs/xml-and-html-handling/html
       if (useHtml) {
-        params.tag_handling = 'xml';
-        params.ignore_tags = 'code,pre'; // Preserve code blocks
+        params.tag_handling = 'html'; // Use 'html' for HTML content (not 'xml')
+        params.split_sentences = 'nonewlines'; // Preserve HTML structure, split on punctuation only
+        params.ignore_tags = 'code,pre,script,style'; // Don't translate code blocks and scripts
       }
       
       const response = await axios.post(url, null, { params });
@@ -85,8 +91,34 @@ class TranslationService {
     }
   }
 
-  async translateWithOpenAI(text, sourceLang, targetLang, glossaryTerms = []) {
+  /**
+   * Extract plain text from HTML while preserving structure markers
+   * Used for OpenAI translation (which doesn't support HTML tag handling)
+   */
+  extractTextFromHtml(html) {
+    if (!html) return '';
+    // Remove HTML tags but preserve structure with markers
+    return html
+      .replace(/<p[^>]*>/gi, '\n\n') // Paragraphs
+      .replace(/<\/p>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n') // Line breaks
+      .replace(/<div[^>]*>/gi, '\n')
+      .replace(/<\/div>/gi, '')
+      .replace(/<h[1-6][^>]*>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
+      .replace(/<[^>]+>/g, ' ') // Remove remaining tags
+      .replace(/\n\s*\n\s*\n/g, '\n\n') // Normalize multiple newlines
+      .trim();
+  }
+
+  async translateWithOpenAI(text, sourceLang, targetLang, glossaryTerms = [], html = null) {
     try {
+      // OpenAI doesn't support native HTML/XML tag handling like DeepL
+      // Reference: OpenAI API documentation - no structured tag handling available
+      // We extract text from HTML and use prompts to preserve formatting
+      const useHtml = html && html.trim().length > 0;
+      const inputText = useHtml ? this.extractTextFromHtml(html) : text;
+      
       let prompt = `Translate the following text from ${sourceLang} to ${targetLang}. 
 
 IMPORTANT: Preserve ALL formatting exactly as it appears:
@@ -94,7 +126,8 @@ IMPORTANT: Preserve ALL formatting exactly as it appears:
 - Preserve bullet points, dashes, and special characters
 - Maintain spacing between words and sentences
 - Keep email addresses, phone numbers, and URLs unchanged
-- Preserve any special formatting characters\n\n`;
+- Preserve any special formatting characters
+${useHtml ? '- The text was extracted from HTML, so preserve paragraph breaks and structure\n' : ''}\n`;
       
       if (glossaryTerms.length > 0) {
         prompt += `Use these glossary terms:\n`;
@@ -104,7 +137,7 @@ IMPORTANT: Preserve ALL formatting exactly as it appears:
         prompt += '\n';
       }
       
-      prompt += `Text to translate (preserve formatting exactly):\n${text}`;
+      prompt += `Text to translate (preserve formatting exactly):\n${inputText}`;
 
       const response = await this.openai.chat.completions.create({
         model: this.options.model || 'gpt-3.5-turbo',
@@ -266,8 +299,9 @@ IMPORTANT: Preserve ALL formatting exactly as it appears:
         return await this.translateWithDeepL(text, sourceLang, targetLang, glossaryTerms, html);
       case 'openai':
       case 'chatgpt':
-        // OpenAI doesn't support HTML tag handling like DeepL, use text
-        return await this.translateWithOpenAI(text, sourceLang, targetLang, glossaryTerms);
+        // OpenAI doesn't support native HTML tag handling like DeepL
+        // We extract text and use prompts to preserve formatting
+        return await this.translateWithOpenAI(text, sourceLang, targetLang, glossaryTerms, html);
       case 'google':
       case 'google-translate':
         // Google Translate doesn't support HTML, use text
