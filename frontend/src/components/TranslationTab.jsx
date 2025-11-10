@@ -430,13 +430,13 @@ function TranslationTab({ settings }) {
               </button>
             </div>
             <div className="limits-content">
-              <p><strong>Characters Used:</strong> {apiLimits.usage.characters_used.toLocaleString()}</p>
-              <p><strong>Requests Made:</strong> {apiLimits.usage.requests_count}</p>
+              <p><strong>Characters Used:</strong> {apiLimits.localUsageToday?.characters_used?.toLocaleString() || 0}</p>
+              <p><strong>Requests Made:</strong> {apiLimits.localUsageToday?.requests_count || 0}</p>
               
-              {apiLimits.limits && (
+              {apiLimits.apiLimits && (
                 <div className="limits-info">
                   <h5>Current Limits:</h5>
-                  {Object.entries(apiLimits.limits).map(([key, value]) => (
+                  {Object.entries(apiLimits.apiLimits).map(([key, value]) => (
                     <p key={key}>
                       <strong>{key.replace(/([A-Z])/g, ' $1').trim()}:</strong> {value}
                     </p>
@@ -447,6 +447,64 @@ function TranslationTab({ settings }) {
               {apiLimits.isNearLimit && (
                 <p className="warning">⚠️ Warning: Approaching API limit</p>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* All API Limits Section */}
+        {Object.keys(allApiLimits).length > 0 && (
+          <div className="api-limits-section">
+            <div className="limits-section-header">
+              <h4>📊 API Limits & Usage</h4>
+              <button 
+                onClick={checkAllApiLimits} 
+                className="btn-small"
+                disabled={refreshingAllLimits}
+                title="Refresh all API limits"
+              >
+                {refreshingAllLimits ? '⏳ Refreshing...' : '🔄 Refresh All'}
+              </button>
+            </div>
+            
+            <div className="all-limits-grid">
+              {Object.entries(allApiLimits).map(([provider, limits]) => {
+                if (limits.error) return null;
+                const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
+                const apiLimitsData = limits.apiLimits || {};
+                
+                return (
+                  <div key={provider} className="api-limit-card">
+                    <h5>{provider.toUpperCase()}</h5>
+                    <div className="limit-details">
+                      <p><strong>Characters Used Today:</strong> {usage.characters_used.toLocaleString()}</p>
+                      <p><strong>Requests Today:</strong> {usage.requests_count}</p>
+                      
+                      {apiLimitsData.charactersLimit && (
+                        <p>
+                          <strong>Monthly Limit:</strong> {apiLimitsData.charactersUsed?.toLocaleString() || 0} / {apiLimitsData.charactersLimit.toLocaleString()} 
+                          {apiLimitsData.percentageUsed && ` (${apiLimitsData.percentageUsed}%)`}
+                        </p>
+                      )}
+                      
+                      {apiLimitsData.requestsPerMinute && (
+                        <p><strong>Requests/Min:</strong> {apiLimitsData.requestsPerMinute}</p>
+                      )}
+                      
+                      {apiLimitsData.note && (
+                        <p className="limit-note">{apiLimitsData.note}</p>
+                      )}
+                      
+                      {apiLimitsData.warning && (
+                        <p className="limit-warning">⚠️ {apiLimitsData.warning}</p>
+                      )}
+                      
+                      {limits.isNearLimit && (
+                        <p className="warning">⚠️ Approaching limit!</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
