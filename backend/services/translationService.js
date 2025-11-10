@@ -1,6 +1,6 @@
 import axios from 'axios';
 import OpenAI from 'openai';
-import translate from '@vitalets/google-translate-api';
+import { translate } from '@vitalets/google-translate-api';
 import { ApiUsage } from '../models/TranslationJob.js';
 import Glossary from '../models/Glossary.js';
 
