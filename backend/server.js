@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import net from 'net';
 
 // Import routes
 import translationRoutes from './routes/translation.js';
@@ -52,7 +53,7 @@ const PORT = process.env.PORT || 5000;
 // Check if port is available
 async function checkPortAvailable(port) {
   return new Promise((resolve) => {
-    const server = require('net').createServer();
+    const server = net.createServer();
     server.once('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         resolve(false);
