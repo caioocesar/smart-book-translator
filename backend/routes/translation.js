@@ -9,6 +9,7 @@ import TranslationService from '../services/translationService.js';
 import DocumentBuilder from '../services/documentBuilder.js';
 import { TranslationJob, TranslationChunk } from '../models/TranslationJob.js';
 import Settings from '../models/Settings.js';
+import Logger from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -321,10 +322,26 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
                            error.message.includes('rate limit') ||
                            error.message.includes('429');
         
+        // Log chunk translation error
+        Logger.logError('translation', `Chunk ${chunk.chunk_index} translation failed`, error, {
+          jobId,
+          chunkIndex: chunk.chunk_index,
+          attempts,
+          maxRetries,
+          isRateLimit,
+          provider
+        });
+        
         if (isRateLimit && attempts < maxRetries) {
           // Exponential backoff for rate limits
           const waitTime = Math.min(60000 * Math.pow(2, attempts - 1), 300000); // Max 5 minutes
           console.log(`Rate limit hit for chunk ${chunk.chunk_index}, waiting ${waitTime/1000}s before retry ${attempts}/${maxRetries}`);
+          Logger.logError('translation', `Rate limit retry for chunk ${chunk.chunk_index}`, null, {
+            jobId,
+            chunkIndex: chunk.chunk_index,
+            attempt: attempts,
+            waitTime: waitTime / 1000
+          });
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue; // Retry this chunk
         } else {
@@ -338,6 +355,10 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
           // If rate limit and we've exhausted retries, wait before next chunk
           if (isRateLimit) {
             console.log('Rate limit exhausted, waiting 2 minutes before continuing...');
+            Logger.logError('translation', 'Rate limit exhausted, waiting before next chunk', null, {
+              jobId,
+              waitTime: 120
+            });
             await new Promise(resolve => setTimeout(resolve, 120000));
           }
         }

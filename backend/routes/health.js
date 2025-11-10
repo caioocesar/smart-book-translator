@@ -1,6 +1,7 @@
 import express from 'express';
 import TestRunner from '../tests/testRunner.js';
 import db from '../database/db.js';
+import Logger from '../utils/logger.js';
 
 const router = express.Router();
 let cachedTestResults = null;
@@ -69,6 +70,28 @@ router.get('/info', (req, res) => {
       node: process.version,
       uptime: process.uptime(),
       memory: process.memoryUsage()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message
+    });
+  }
+});
+
+// Get logs
+router.get('/logs', (req, res) => {
+  try {
+    const { type = 'errors', lines = 100 } = req.query;
+    const logType = ['errors', 'connections', 'api'].includes(type) ? type : 'errors';
+    const lineCount = parseInt(lines) || 100;
+    
+    const logs = Logger.getRecentLogs(logType, lineCount);
+    
+    res.json({
+      type: logType,
+      count: logs.length,
+      logs
     });
   } catch (error) {
     res.status(500).json({

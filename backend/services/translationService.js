@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { translate } from '@vitalets/google-translate-api';
 import { ApiUsage } from '../models/TranslationJob.js';
 import Glossary from '../models/Glossary.js';
+import Logger from '../utils/logger.js';
 
 class TranslationService {
   constructor(provider, apiKey, options = {}) {
@@ -52,9 +53,19 @@ class TranslationService {
         charactersUsed: text.length
       };
     } catch (error) {
+      // Log the error with full details
+      Logger.logApiError('deepl', 'translate', error, {
+        sourceLang,
+        targetLang,
+        textLength: text.length,
+        hasGlossary: glossaryTerms.length > 0,
+        url: 'https://api-free.deepl.com/v2/translate'
+      });
+      
       if (error.response?.status === 429) {
         throw new Error('Rate limit exceeded. Please wait before retrying.');
       } else if (error.response?.status === 403) {
+        Logger.logConnection('deepl', 'authentication', false, { error: error.message });
         throw new Error('Invalid API key or authentication failed.');
       } else if (error.response?.status === 456) {
         throw new Error('Character limit exceeded.');
@@ -104,6 +115,15 @@ class TranslationService {
         tokensUsed: response.usage.total_tokens
       };
     } catch (error) {
+      // Log the error with full details
+      Logger.logApiError('openai', 'translate', error, {
+        model: this.options.model || 'gpt-3.5-turbo',
+        sourceLang,
+        targetLang,
+        textLength: text.length,
+        hasGlossary: glossaryTerms.length > 0
+      });
+      
       // Check for rate limit errors (429) - OpenAI SDK may structure errors differently
       const statusCode = error.status || error.statusCode || error.response?.status;
       
@@ -123,6 +143,7 @@ class TranslationService {
         
         throw new Error(rateLimitMessage);
       } else if (statusCode === 401) {
+        Logger.logConnection('openai', 'authentication', false, { error: error.message });
         throw new Error('Invalid API key or authentication failed.');
       } else if (statusCode === 404) {
         const model = this.options.model || 'gpt-3.5-turbo';
@@ -179,6 +200,16 @@ class TranslationService {
         provider: 'Google Translate (Free)'
       };
     } catch (error) {
+      // Log the error with full details
+      Logger.logApiError('google', 'translate', error, {
+        sourceLang,
+        targetLang,
+        textLength: text.length,
+        hasGlossary: glossaryTerms.length > 0,
+        errorCode: error.code,
+        errorName: error.name
+      });
+      
       // Handle rate limiting (Google may block after many requests)
       if (error.code === 'BAD_REQUEST' || error.message.includes('Too Many Requests')) {
         throw new Error('Rate limit exceeded. Please wait a few minutes before retrying.');

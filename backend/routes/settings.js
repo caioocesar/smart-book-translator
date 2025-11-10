@@ -2,6 +2,7 @@ import express from 'express';
 import Settings from '../models/Settings.js';
 import TranslationService from '../services/translationService.js';
 import { ApiUsage } from '../models/TranslationJob.js';
+import Logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -83,8 +84,19 @@ router.post('/test-api', async (req, res) => {
 
     const service = new TranslationService(provider, apiKey, testOptions);
     
+    // Log connection attempt
+    Logger.logConnection(provider, 'test', true, { 
+      hasApiKey: !!apiKey,
+      options: testOptions 
+    });
+    
     // Test with a simple translation
     const result = await service.translate('Hello', 'en', 'es');
+    
+    Logger.logConnection(provider, 'test', true, { 
+      success: true,
+      testTranslation: result.translatedText 
+    });
     
     res.json({
       success: true,
@@ -92,6 +104,12 @@ router.post('/test-api', async (req, res) => {
       testTranslation: result.translatedText
     });
   } catch (error) {
+    // Log connection failure
+    Logger.logConnection(provider, 'test', false, { 
+      error: error.message,
+      stack: error.stack 
+    });
+    
     // Return proper error message
     const errorMessage = error.message || 'Test failed';
     console.error('API test error:', errorMessage);
