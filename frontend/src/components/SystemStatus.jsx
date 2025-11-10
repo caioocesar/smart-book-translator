@@ -15,12 +15,14 @@ function SystemStatus() {
   const checkSystemStatus = async () => {
     setLoading(true);
     try {
+      console.log('Checking backend status at:', `${API_URL}/api/health`);
       const [healthResponse, testResponse, infoResponse] = await Promise.all([
         axios.get(`${API_URL}/api/health`),
         axios.get(`${API_URL}/api/health/test/results`),
         axios.get(`${API_URL}/api/health/info`)
       ]);
 
+      console.log('Backend responded successfully:', healthResponse.data);
       setStatus({
         health: healthResponse.data,
         tests: testResponse.data,
@@ -28,6 +30,7 @@ function SystemStatus() {
       });
     } catch (error) {
       console.error('Status check failed:', error);
+      console.error('Error details:', error.message, error.response?.status);
       setStatus({
         error: 'Failed to connect to backend',
         health: { status: 'error' }

@@ -203,8 +203,11 @@ npm run dev
 ### Quick Start
 
 1. **Launch the Application**
-   - Ubuntu: Run `./run.sh` or find "Smart Book Translator" in your applications
+   - Ubuntu: Run `./launch.sh` or click "Smart Book Translator" in your applications menu
    - Windows: Double-click the desktop shortcut or run `run.bat`
+   - The application will open in your browser automatically
+
+> **💡 Tip**: If you see "Backend Offline", make sure you're accessing the correct URL. After starting, the terminal will show the correct URLs (usually `http://localhost:3002` for the frontend and `http://localhost:5000` for the backend). Always refresh your browser after restarting the application!
 
 2. **Configure API Settings** (First Time)
    - Go to the **Settings** tab
