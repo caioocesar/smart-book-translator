@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Smart Book Translator
+Comment=Translate EPUB, DOCX, and PDF books using AI
+Exec=/home/caio/book/smart-book-translator/launch.sh
+Icon=/home/caio/book/smart-book-translator/icon.svg
+Terminal=false
+Categories=Utility;Office;Translation;
+StartupNotify=true
+Keywords=translate;translation;book;epub;pdf;docx;
+

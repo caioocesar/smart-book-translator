@@ -180,14 +180,25 @@ EOF
 chmod +x "$DESKTOP_FILE"
 print_success "Desktop launcher created"
 
+# Install desktop launcher
+echo ""
+echo "Installing desktop launcher..."
+mkdir -p ~/.local/share/applications
+cp smart-book-translator.desktop ~/.local/share/applications/
+chmod +x ~/.local/share/applications/smart-book-translator.desktop
+chmod +x launch.sh
+update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
+print_success "Desktop launcher installed"
+
 echo ""
 echo "=========================================="
 echo "✅ Installation Complete!"
 echo "=========================================="
 echo ""
-echo "To start the application, you can:"
-echo "  1. Run: ./run.sh"
-echo "  2. Search for 'Smart Book Translator' in your applications menu"
+echo "You can now start the application by:"
+echo "  1. ⭐ Clicking 'Smart Book Translator' in your applications menu (recommended)"
+echo "  2. Running: ./launch.sh (opens browser automatically)"
+echo "  3. Running: ./start.sh (with process management)"
 echo ""
 echo "⚠️  Important: This program is for personal use only."
 echo "    Do not use for commercial purposes or copyright infringement."

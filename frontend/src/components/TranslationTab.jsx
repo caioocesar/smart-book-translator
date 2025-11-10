@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 function TranslationTab({ settings }) {
   const [file, setFile] = useState(null);
@@ -45,7 +45,9 @@ function TranslationTab({ settings }) {
 
   useEffect(() => {
     // Setup WebSocket connection
-    const newSocket = io(API_URL);
+    // In development, connect to backend directly for WebSocket
+    const wsURL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const newSocket = io(wsURL);
     setSocket(newSocket);
 
     return () => newSocket.close();

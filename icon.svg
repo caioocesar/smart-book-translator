@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="256" height="256" rx="32" fill="#667eea"/>
+  
+  <!-- Books icon -->
+  <g transform="translate(128, 128)">
+    <!-- First book -->
+    <rect x="-80" y="-60" width="50" height="90" rx="3" fill="#ffffff" stroke="#333" stroke-width="2"/>
+    <line x1="-75" y1="-60" x2="-75" y2="30" stroke="#667eea" stroke-width="2"/>
+    <line x1="-70" y1="-60" x2="-70" y2="30" stroke="#667eea" stroke-width="1"/>
+    
+    <!-- Second book (tilted) -->
+    <g transform="rotate(-15)">
+      <rect x="-25" y="-65" width="50" height="95" rx="3" fill="#ffffff" stroke="#333" stroke-width="2"/>
+      <line x1="-20" y1="-65" x2="-20" y2="30" stroke="#764ba2" stroke-width="2"/>
+      <line x1="-15" y1="-65" x2="-15" y2="30" stroke="#764ba2" stroke-width="1"/>
+    </g>
+    
+    <!-- Third book -->
+    <rect x="30" y="-55" width="50" height="85" rx="3" fill="#ffffff" stroke="#333" stroke-width="2"/>
+    <line x1="35" y1="-55" x2="35" y2="30" stroke="#667eea" stroke-width="2"/>
+    <line x1="40" y1="-55" x2="40" y2="30" stroke="#667eea" stroke-width="1"/>
+    
+    <!-- Translation symbol (A→B) -->
+    <text x="-10" y="55" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#ffffff">A→B</text>
+  </g>
+</svg>
+
