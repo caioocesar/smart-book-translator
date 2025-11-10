@@ -395,7 +395,7 @@ function TranslationTab({ settings }) {
               />
               <button 
                 onClick={testApiConnection}
-                className="btn-test"
+                className="btn-small btn-test"
                 disabled={(apiProvider !== 'google' && !apiKey) || testingConnection}
               >
                 {testingConnection ? '⏳ Testing...' : '🔌 Test'}
