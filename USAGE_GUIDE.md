@@ -345,3 +345,4 @@ If application closes during translation:
 **Happy Translating!** 📚✨
 
 
+

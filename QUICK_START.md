@@ -83,3 +83,4 @@ Your translated document is ready!
 **⚠️ Remember**: For personal use only. Respect copyright laws!
 
 
+

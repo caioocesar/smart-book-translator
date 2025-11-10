@@ -382,3 +382,4 @@ The Smart Book Translator is complete with:
 *Version: 1.0.0 - Feature Complete*
 
 
+

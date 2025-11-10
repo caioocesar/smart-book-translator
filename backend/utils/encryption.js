@@ -67,3 +67,4 @@ class Encryption {
 export default new Encryption();
 
 
+

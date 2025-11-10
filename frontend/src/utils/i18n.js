@@ -503,3 +503,4 @@ export const getAvailableLanguages = () => [
 
 export default { t, getCurrentLanguage, setCurrentLanguage, getAvailableLanguages };
 
+

@@ -111,3 +111,4 @@ All notable changes to Smart Book Translator will be documented in this file.
 - PATCH version for backwards compatible bug fixes
 
 
+

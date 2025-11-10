@@ -62,7 +62,13 @@ router.post('/test-api', async (req, res) => {
       return res.status(400).json({ error: 'Provider and API key are required' });
     }
 
-    const service = new TranslationService(provider, apiKey, options);
+    // For OpenAI, ensure we have a valid model option
+    let testOptions = options || {};
+    if ((provider === 'openai' || provider === 'chatgpt') && !testOptions.model) {
+      testOptions.model = 'gpt-3.5-turbo'; // Default to accessible model
+    }
+
+    const service = new TranslationService(provider, apiKey, testOptions);
     
     // Test with a simple translation
     const result = await service.translate('Hello', 'en', 'es');
@@ -73,9 +79,11 @@ router.post('/test-api', async (req, res) => {
       testTranslation: result.translatedText
     });
   } catch (error) {
+    // Return proper error message
+    const errorMessage = error.message || 'Test failed';
     res.status(400).json({
       success: false,
-      error: error.message
+      error: errorMessage
     });
   }
 });
@@ -118,5 +126,6 @@ router.post('/check-limits', async (req, res) => {
 });
 
 export default router;
+
 
 

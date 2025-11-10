@@ -15,24 +15,55 @@ function SystemStatus() {
   const checkSystemStatus = async () => {
     setLoading(true);
     try {
-      console.log('Checking backend status at:', `${API_URL}/api/health`);
-      const [healthResponse, testResponse, infoResponse] = await Promise.all([
-        axios.get(`${API_URL}/api/health`),
-        axios.get(`${API_URL}/api/health/test/results`),
-        axios.get(`${API_URL}/api/health/info`)
-      ]);
-
-      console.log('Backend responded successfully:', healthResponse.data);
-      setStatus({
-        health: healthResponse.data,
-        tests: testResponse.data,
-        info: infoResponse.data
-      });
+      const baseUrl = API_URL || '';
+      console.log('Checking backend status at:', `${baseUrl}/api/health`);
+      
+      // Try health endpoint first (simplest check)
+      try {
+        const healthResponse = await axios.get(`${baseUrl}/api/health`, { timeout: 5000 });
+        console.log('Backend responded successfully:', healthResponse.data);
+        
+        // If health check passes, try to get other info (but don't fail if these fail)
+        let testResponse = null;
+        let infoResponse = null;
+        
+        try {
+          testResponse = await axios.get(`${baseUrl}/api/health/test/results`, { timeout: 3000 });
+        } catch (err) {
+          console.warn('Could not fetch test results:', err.message);
+        }
+        
+        try {
+          infoResponse = await axios.get(`${baseUrl}/api/health/info`, { timeout: 3000 });
+        } catch (err) {
+          console.warn('Could not fetch system info:', err.message);
+        }
+        
+        setStatus({
+          health: healthResponse.data,
+          tests: testResponse?.data || null,
+          info: infoResponse?.data || null
+        });
+      } catch (healthError) {
+        // If health check fails, backend is definitely offline
+        throw healthError;
+      }
     } catch (error) {
       console.error('Status check failed:', error);
-      console.error('Error details:', error.message, error.response?.status);
+      console.error('Error details:', error.message, error.response?.status, error.code);
+      
+      // Provide more helpful error message
+      let errorMsg = 'Failed to connect to backend';
+      if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+        errorMsg = 'Backend server is not running. Please start the backend server.';
+      } else if (error.response?.status === 404) {
+        errorMsg = 'Backend endpoint not found. Check if server is running on correct port.';
+      } else if (error.message?.includes('timeout')) {
+        errorMsg = 'Backend request timed out. Server may be overloaded.';
+      }
+      
       setStatus({
-        error: 'Failed to connect to backend',
+        error: errorMsg,
         health: { status: 'error' }
       });
     } finally {

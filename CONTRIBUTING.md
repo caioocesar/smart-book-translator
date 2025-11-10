@@ -121,3 +121,4 @@ Feel free to:
 Thank you for helping make Smart Book Translator better while maintaining ethical standards! 🙏
 
 
+

@@ -61,3 +61,4 @@ done
 echo "Application started but port detection failed. Check http://localhost:5173"
 xdg-open "http://localhost:5173" &
 
+

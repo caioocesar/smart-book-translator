@@ -108,6 +108,13 @@ class TranslationService {
         throw new Error('Rate limit exceeded. Please wait before retrying.');
       } else if (error.status === 401) {
         throw new Error('Invalid API key or authentication failed.');
+      } else if (error.status === 404) {
+        const model = this.options.model || 'gpt-3.5-turbo';
+        if (model.includes('gpt-4')) {
+          throw new Error(`The model "${model}" is not available. You may not have access to GPT-4. Try using "gpt-3.5-turbo" instead in Settings.`);
+        } else {
+          throw new Error(`The model "${model}" does not exist or you do not have access to it. Please check your OpenAI account and model selection.`);
+        }
       }
       throw new Error(`OpenAI translation failed: ${error.message}`);
     }

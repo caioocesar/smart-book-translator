@@ -31,6 +31,26 @@ print_info() {
 # Navigate to script directory
 cd "$(dirname "$0")"
 
+# Stop running application first
+echo "Stopping running application..."
+if [ -f "./stop.sh" ]; then
+    bash ./stop.sh
+    sleep 2
+    print_success "Application stopped"
+else
+    print_info "stop.sh not found, trying to stop manually..."
+    # Try to stop processes on common ports
+    for port in 5000 5001 5002 5003 5004 5005 3000 3001 3002 5173; do
+        PID=$(lsof -ti:$port 2>/dev/null || true)
+        if [ ! -z "$PID" ]; then
+            print_info "Stopping process on port $port (PID: $PID)"
+            kill $PID 2>/dev/null || true
+        fi
+    done
+    sleep 2
+fi
+
+echo ""
 echo "Updating Smart Book Translator..."
 echo ""
 
@@ -94,5 +114,6 @@ echo ""
 echo "To start the application:"
 echo "  ./run.sh"
 echo ""
+
 
 

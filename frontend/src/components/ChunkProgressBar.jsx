@@ -245,3 +245,4 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
 
 export default ChunkProgressBar;
 
+

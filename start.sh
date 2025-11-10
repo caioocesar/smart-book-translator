@@ -133,3 +133,4 @@ trap "echo ''; echo 'Stopping servers...'; kill $BACKEND_PID $FRONTEND_PID 2>/de
 # Keep script running
 wait
 
+
