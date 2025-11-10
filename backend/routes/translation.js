@@ -63,7 +63,8 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       targetLanguage,
       apiProvider,
       outputFormat,
-      apiKey
+      apiKey,
+      chunkSize
     } = req.body;
 
     if (!sourceLanguage || !targetLanguage || !apiProvider) {
@@ -102,7 +103,9 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       throw new Error('Document parsed successfully but contains no text. The file might be empty or corrupted.');
     }
 
-    const chunks = DocumentParser.splitIntoChunks(parsed.text);
+    // Use provided chunk size or default
+    const maxChunkSize = chunkSize ? parseInt(chunkSize) : 3000;
+    const chunks = DocumentParser.splitIntoChunks(parsed.text, maxChunkSize);
     let htmlChunks = [];
     
     // If HTML is available, split it intelligently preserving tags

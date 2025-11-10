@@ -28,6 +28,7 @@ function TranslationTab({ settings }) {
   const [documentInfo, setDocumentInfo] = useState(null);
   const [recommendations, setRecommendations] = useState(null);
   const [analyzingDocument, setAnalyzingDocument] = useState(false);
+  const [chunkSize, setChunkSize] = useState(settings.chunkSize || 3000);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -274,6 +275,7 @@ function TranslationTab({ settings }) {
     formData.append('apiProvider', apiProvider);
     formData.append('outputFormat', outputFormat);
     formData.append('apiKey', apiKey);
+    formData.append('chunkSize', chunkSize.toString());
 
     try {
       const response = await axios.post(`${API_URL}/api/translation/upload`, formData);
@@ -334,7 +336,10 @@ function TranslationTab({ settings }) {
 
   const handleSelectRecommendation = (rec) => {
     setApiProvider(rec.provider);
-    // Could also set chunk size in settings if we add that feature
+    // Set chunk size from recommendation
+    if (rec.recommendedChunkSize) {
+      setChunkSize(rec.recommendedChunkSize);
+    }
     console.log('Selected recommendation:', rec);
   };
 
@@ -430,6 +435,25 @@ function TranslationTab({ settings }) {
               <option value="docx">{t('wordDocument')}</option>
               <option value="epub">{t('epubFormat')}</option>
             </select>
+          </div>
+
+          <div className="form-group">
+            <label>{t('chunkSizeCharacters') || 'Chunk Size (characters)'}</label>
+            <input
+              type="number"
+              value={chunkSize}
+              onChange={(e) => setChunkSize(parseInt(e.target.value) || 3000)}
+              min={1000}
+              max={50000}
+              step={500}
+            />
+            <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+              {documentInfo && recommendations && recommendations[0] ? (
+                <>Recommended: {recommendations[0].recommendedChunkSize.toLocaleString()} chars (from {recommendations[0].model})</>
+              ) : (
+                <>Default: 3000 chars. Larger chunks = fewer API calls but may hit limits.</>
+              )}
+            </p>
           </div>
 
           <div className="form-group full-width">

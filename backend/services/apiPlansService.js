@@ -280,10 +280,12 @@ class ApiPlansService {
   static recommendApi(documentSize, characterCount, hasGlossary = false) {
     const recommendations = [];
     
-    // DeepL recommendations
+    // DeepL recommendations - always show DeepL as an option
     const deeplFree = DEFAULT_PLANS.deepl.free;
     const deeplStarter = DEFAULT_PLANS.deepl.starter;
+    const deeplAdvanced = DEFAULT_PLANS.deepl.advanced;
     
+    // Always recommend DeepL Free if document fits
     if (characterCount <= deeplFree.monthlyLimit) {
       recommendations.push({
         provider: 'deepl',
@@ -298,6 +300,7 @@ class ApiPlansService {
       });
     }
     
+    // Always recommend DeepL Pro Starter if document fits
     if (characterCount <= deeplStarter.monthlyLimit) {
       recommendations.push({
         provider: 'deepl',
@@ -309,6 +312,34 @@ class ApiPlansService {
         supportsGlossary: true,
         supportsHtml: true,
         cost: 5.99
+      });
+    }
+    
+    // Always recommend DeepL Pro Advanced for larger documents
+    if (characterCount <= deeplAdvanced.monthlyLimit) {
+      recommendations.push({
+        provider: 'deepl',
+        plan: 'advanced',
+        model: 'DeepL Pro Advanced',
+        reason: `Best for large documents (${(characterCount / deeplAdvanced.monthlyLimit * 100).toFixed(1)}% of limit)`,
+        estimatedChunks: Math.ceil(characterCount / 6000),
+        recommendedChunkSize: 6000,
+        supportsGlossary: true,
+        supportsHtml: true,
+        cost: 29.99
+      });
+    } else {
+      // Even if document exceeds limits, show DeepL as option (user might have higher tier)
+      recommendations.push({
+        provider: 'deepl',
+        plan: 'ultimate',
+        model: 'DeepL Pro Ultimate',
+        reason: `Best quality with highest limits (20M chars/month)`,
+        estimatedChunks: Math.ceil(characterCount / 8000),
+        recommendedChunkSize: 8000,
+        supportsGlossary: true,
+        supportsHtml: true,
+        cost: 99.99
       });
     }
     
