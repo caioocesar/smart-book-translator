@@ -127,6 +127,42 @@ echo ""
 echo "$BACKEND_PID" > .pids
 echo "$FRONTEND_PID" >> .pids
 
+# Wait a bit more for frontend to fully start
+sleep 3
+
+# Try to detect frontend port
+FRONTEND_PORT=""
+for port in 3002 5173 3001 3000 3003 3004; do
+    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+        FRONTEND_PORT=$port
+        break
+    fi
+done
+
+# Also try to read from frontend log
+if [ -z "$FRONTEND_PORT" ] && [ -f "frontend.log" ]; then
+    LOG_PORT=$(grep -oP 'Local:\s+http://localhost:\K\d+' frontend.log 2>/dev/null | head -1)
+    if [ ! -z "$LOG_PORT" ] && lsof -Pi :$LOG_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+        FRONTEND_PORT=$LOG_PORT
+    fi
+fi
+
+# Ask if user wants to open browser
+if [ ! -z "$FRONTEND_PORT" ]; then
+    echo ""
+    read -p "Do you want to open the application in your browser? (y/n): " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        print_info "Opening http://localhost:$FRONTEND_PORT..."
+        xdg-open "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+        sensible-browser "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+        echo "Please open http://localhost:$FRONTEND_PORT in your browser"
+    fi
+else
+    echo ""
+    print_info "Frontend port not detected. Check frontend.log for the correct URL"
+fi
+
 # Wait for Ctrl+C
 trap "echo ''; echo 'Stopping servers...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; rm -f .pids; echo 'Servers stopped.'; exit 0" INT TERM
 

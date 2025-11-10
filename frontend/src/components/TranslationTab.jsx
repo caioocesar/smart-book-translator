@@ -151,6 +151,7 @@ function TranslationTab({ settings }) {
         });
       } finally {
         setTestingConnection(false);
+      }
       return;
     }
 

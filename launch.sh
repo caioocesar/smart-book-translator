@@ -10,13 +10,41 @@ cd "$(dirname "$0")"
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # Check if already running
 if lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     echo -e "${BLUE}Application is already running!${NC}"
-    # Just open browser to existing instance
-    xdg-open http://localhost:3002 2>/dev/null || xdg-open http://localhost:5173 2>/dev/null || xdg-open http://localhost:3001 2>/dev/null &
+    # Detect frontend port and open browser
+    FRONTEND_PORT=""
+    for port in 3002 5173 3001 3000 3003 3004; do
+        if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+            FRONTEND_PORT=$port
+            break
+        fi
+    done
+    
+    # Also check log files
+    if [ -z "$FRONTEND_PORT" ] && [ -f "frontend.log" ]; then
+        LOG_PORT=$(grep -oP 'Local:\s+http://localhost:\K\d+' frontend.log 2>/dev/null | head -1)
+        if [ ! -z "$LOG_PORT" ] && lsof -Pi :$LOG_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+            FRONTEND_PORT=$LOG_PORT
+        fi
+    fi
+    
+    if [ ! -z "$FRONTEND_PORT" ]; then
+        echo -e "${GREEN}Opening application on port $FRONTEND_PORT...${NC}"
+        xdg-open "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+        sensible-browser "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+        echo "Please open http://localhost:$FRONTEND_PORT in your browser"
+    else
+        # Try common ports
+        xdg-open http://localhost:3002 2>/dev/null || \
+        xdg-open http://localhost:5173 2>/dev/null || \
+        xdg-open http://localhost:3001 2>/dev/null || \
+        echo "Please check which port the frontend is running on"
+    fi
     exit 0
 fi
 
@@ -41,24 +69,50 @@ echo "$BACKEND_PID" > /tmp/smart-book-translator.pids
 echo "$FRONTEND_PID" >> /tmp/smart-book-translator.pids
 
 # Wait for frontend to start and detect port
-sleep 4
+sleep 5
 
-# Try to detect which port frontend is using and open it
-for port in 3002 5173 3001 3000; do
+# Try to detect which port frontend is using
+FRONTEND_PORT=""
+for port in 3002 5173 3001 3000 3003 3004; do
     if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
-        echo -e "${GREEN}Opening application on port $port...${NC}"
-        xdg-open "http://localhost:$port" &
-        
-        # Show notification
-        if command -v notify-send &> /dev/null; then
-            notify-send "Smart Book Translator" "Application started successfully!" -i applications-education
-        fi
-        
-        exit 0
+        FRONTEND_PORT=$port
+        break
     fi
 done
 
-echo "Application started but port detection failed. Check http://localhost:5173"
-xdg-open "http://localhost:5173" &
+# Also try to read from frontend log
+if [ -z "$FRONTEND_PORT" ] && [ -f "/tmp/smart-book-translator-frontend.log" ]; then
+    # Try to extract port from log
+    LOG_PORT=$(grep -oP 'Local:\s+http://localhost:\K\d+' /tmp/smart-book-translator-frontend.log 2>/dev/null | head -1)
+    if [ ! -z "$LOG_PORT" ] && lsof -Pi :$LOG_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+        FRONTEND_PORT=$LOG_PORT
+    fi
+fi
+
+# Also check frontend.log in current directory
+if [ -z "$FRONTEND_PORT" ] && [ -f "frontend.log" ]; then
+    LOG_PORT=$(grep -oP 'Local:\s+http://localhost:\K\d+' frontend.log 2>/dev/null | head -1)
+    if [ ! -z "$LOG_PORT" ] && lsof -Pi :$LOG_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+        FRONTEND_PORT=$LOG_PORT
+    fi
+fi
+
+# Open browser with detected port
+if [ ! -z "$FRONTEND_PORT" ]; then
+    echo -e "${GREEN}Opening application on port $FRONTEND_PORT...${NC}"
+    xdg-open "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+    sensible-browser "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+    echo "Please open http://localhost:$FRONTEND_PORT in your browser"
+    
+    # Show notification
+    if command -v notify-send &> /dev/null; then
+        notify-send "Smart Book Translator" "Application started on port $FRONTEND_PORT!" -i applications-education
+    fi
+else
+    echo -e "${YELLOW}Could not detect frontend port. Trying common ports...${NC}"
+    for port in 3002 5173 3001 3000; do
+        xdg-open "http://localhost:$port" 2>/dev/null && break
+    done
+fi
 
 
