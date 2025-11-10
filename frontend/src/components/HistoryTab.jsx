@@ -76,6 +76,16 @@ function HistoryTab({ settings, onTranslationReady }) {
     }
   };
 
+  // Reload chunks for expanded jobs to update countdown timers in real-time
+  useEffect(() => {
+    if (expandedJob) {
+      const interval = setInterval(() => {
+        loadJobChunks(expandedJob);
+      }, 1000); // Update every second for real-time countdown
+      return () => clearInterval(interval);
+    }
+  }, [expandedJob]);
+
   const loadStorageInfo = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/translation/storage-info`);
@@ -588,7 +598,10 @@ function HistoryTab({ settings, onTranslationReady }) {
                           )}
                           {chunk.status === 'failed' && chunk.next_retry_at && (
                             <div className="chunk-retry-info">
-                              ⏰ {t('nextRetry')}: {formatRetryTime(chunk.next_retry_at)}
+                              ⏰ {t('nextRetry')}: <strong>{formatRetryTime(chunk.next_retry_at)}</strong>
+                              {formatRetryTime(chunk.next_retry_at) === t('retryNow') && (
+                                <span style={{ marginLeft: '0.5rem', color: '#28a745' }}>🔄 {t('retrying')}...</span>
+                              )}
                             </div>
                           )}
                           {chunk.status === 'pending' && (
