@@ -126,12 +126,25 @@ The installer will:
 
 #### Windows Installation
 
+**Prerequisites:**
+- Node.js 18+ ([Download here](https://nodejs.org/))
+- Python 3.6+ ([Download here](https://www.python.org/downloads/)) - Required for compiling `better-sqlite3`
+- Visual Studio Build Tools ([Download here](https://aka.ms/vs/17/release/vs_buildtools.exe)) - Required for compiling native modules
+
+**Quick Setup:**
 ```powershell
 # Open PowerShell as Administrator
 cd smart-book-translator
 
 # Enable script execution (if needed)
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Install Python (if needed)
+.\install-python-windows.ps1
+# IMPORTANT: Close and reopen PowerShell after installing Python!
+
+# Configure Python for npm
+.\fix-python-config.ps1
 
 # Run the installation script
 .\install-windows.ps1
@@ -142,8 +155,14 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\run.ps1
 ```
 
+**Important Notes:**
+- When installing Python, **check "Add Python to PATH"** ✅
+- After installing Build Tools, restart your computer
+- If you get Python errors, see `INSTALACAO_RAPIDA_WINDOWS.md` or `SOLUCAO_PROBLEMAS_WINDOWS.md`
+
 The installer will:
 - Check Node.js and npm versions
+- Verify Python installation
 - Install all dependencies
 - Create necessary directories
 - Generate launcher scripts
