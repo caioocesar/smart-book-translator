@@ -147,10 +147,10 @@ if [ -z "$FRONTEND_PORT" ] && [ -f "frontend.log" ]; then
     fi
 fi
 
-# Ask if user wants to open browser
+# Ask if user wants to open browser (before waiting)
 if [ ! -z "$FRONTEND_PORT" ]; then
     echo ""
-    read -p "Do you want to open the application in your browser? (y/n): " -n 1 -r
+    read -p "Do you want to open the application in your browser now? (y/n): " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         print_info "Opening http://localhost:$FRONTEND_PORT..."
@@ -161,6 +161,23 @@ if [ ! -z "$FRONTEND_PORT" ]; then
 else
     echo ""
     print_info "Frontend port not detected. Check frontend.log for the correct URL"
+    echo ""
+    read -p "Do you want to wait a bit and try again? (y/n): " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        sleep 5
+        # Try to detect frontend port again
+        for port in 3002 5173 3001 3000 3003 3004; do
+            if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+                FRONTEND_PORT=$port
+                print_info "Opening http://localhost:$FRONTEND_PORT..."
+                xdg-open "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+                sensible-browser "http://localhost:$FRONTEND_PORT" 2>/dev/null || \
+                echo "Please open http://localhost:$FRONTEND_PORT in your browser"
+                break
+            fi
+        done
+    fi
 fi
 
 # Wait for Ctrl+C

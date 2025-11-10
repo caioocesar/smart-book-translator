@@ -899,7 +899,8 @@
   margin-top: 0.75rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .output-path code {
@@ -1523,10 +1524,27 @@
 }
 
 .chunk-retry-count {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
   margin-top: 0.5rem;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: #6c757d;
-  font-style: italic;
+}
+
+.next-retry-time {
+  color: #fd7e14;
+  font-weight: 600;
+}
+
+.chunk-pending-info {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #fff3cd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #856404;
 }
 
 /* Responsive chunks grid */

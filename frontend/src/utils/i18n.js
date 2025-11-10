@@ -78,6 +78,12 @@ const translations = {
     translation: 'Translation',
     retries: 'Retries',
     showOnlyFailed: 'Show only failed chunks',
+    pending: 'Pending',
+    willProcessSoon: 'Will process soon',
+    retryNow: 'Now',
+    minutes: 'min',
+    seconds: 'sec',
+    openDirectory: 'Open Directory',
     
     // Progress Visualization
     progressOverview: 'Progress Overview',
@@ -236,6 +242,12 @@ const translations = {
     translation: 'Tradução',
     retries: 'Tentativas',
     showOnlyFailed: 'Mostrar apenas partes falhadas',
+    pending: 'Pendente',
+    willProcessSoon: 'Será processado em breve',
+    retryNow: 'Agora',
+    minutes: 'min',
+    seconds: 'seg',
+    openDirectory: 'Abrir Diretório',
     
     // Progress Visualization
     progressOverview: 'Visão Geral do Progresso',
@@ -394,6 +406,12 @@ const translations = {
     translation: 'Traducción',
     retries: 'Reintentos',
     showOnlyFailed: 'Mostrar solo partes fallidas',
+    pending: 'Pendiente',
+    willProcessSoon: 'Se procesará pronto',
+    retryNow: 'Ahora',
+    minutes: 'min',
+    seconds: 'seg',
+    openDirectory: 'Abrir Directorio',
     
     // Progress Visualization
     progressOverview: 'Resumen del Progreso',

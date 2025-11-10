@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
 import db from '../database/db.js';
 import DocumentParser from '../services/documentParser.js';
 import TranslationService from '../services/translationService.js';
@@ -454,7 +455,7 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
         } else {
           // Max retries reached or non-rate-limit error
           console.error(`Chunk ${chunk.chunk_index} failed after ${attempts} attempts:`, error.message);
-          TranslationChunk.markFailed(chunk.id, error.message);
+          TranslationChunk.markFailed(chunk.id, error.message, isRateLimit);
           failed++;
           TranslationJob.updateProgress(jobId, completed, failed);
           chunkCompleted = true; // Move to next chunk
@@ -577,6 +578,49 @@ router.post('/generate/:jobId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Open directory in file manager
+router.post('/open-directory', async (req, res) => {
+  try {
+    const { path: dirPath } = req.body;
+    
+    if (!dirPath) {
+      return res.status(400).json({ error: 'Path is required' });
+    }
+
+    // Normalize path
+    const normalizedPath = path.resolve(dirPath);
+    
+    // Check if directory exists
+    if (!fs.existsSync(normalizedPath)) {
+      return res.status(404).json({ error: 'Directory not found' });
+    }
+
+    // Open directory based on platform
+    const platform = process.platform;
+    let command;
+    
+    if (platform === 'win32') {
+      command = `explorer "${normalizedPath}"`;
+    } else if (platform === 'darwin') {
+      command = `open "${normalizedPath}"`;
+    } else {
+      // Linux - try common file managers
+      command = `xdg-open "${normalizedPath}" || nautilus "${normalizedPath}" || dolphin "${normalizedPath}" || thunar "${normalizedPath}" || nemo "${normalizedPath}"`;
+    }
+
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Error opening directory:', error);
+        return res.status(500).json({ error: 'Failed to open directory', details: error.message });
+      }
+      res.json({ success: true, message: 'Directory opened' });
+    });
+  } catch (error) {
+    console.error('Error opening directory:', error);
     res.status(500).json({ error: error.message });
   }
 });

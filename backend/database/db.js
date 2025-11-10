@@ -73,12 +73,20 @@ function initDatabase() {
       status TEXT NOT NULL,
       retry_count INTEGER DEFAULT 0,
       error_message TEXT,
+      next_retry_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (job_id) REFERENCES translation_jobs(id) ON DELETE CASCADE,
       UNIQUE(job_id, chunk_index)
     )
   `);
+  
+  // Add next_retry_at column if it doesn't exist (for existing databases)
+  try {
+    db.exec(`ALTER TABLE translation_chunks ADD COLUMN next_retry_at DATETIME`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
 
   // API usage tracking table
   db.exec(`

@@ -488,6 +488,12 @@ function TranslationTab({ settings }) {
                 const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
                 const apiLimitsData = limits.apiLimits || {};
                 
+                // Skip if no data at all
+                if (!usage.characters_used && !usage.requests_count && 
+                    !apiLimitsData.charactersLimit && !apiLimitsData.requestsPerMinute) {
+                  return null;
+                }
+                
                 return (
                   <div key={provider} className="api-limit-card">
                     <h5>{provider.toUpperCase()}</h5>

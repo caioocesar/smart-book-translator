@@ -165,6 +165,48 @@ function HistoryTab({ settings, onTranslationReady }) {
     return date.toLocaleString();
   };
 
+  const formatRetryTime = (dateString) => {
+    const retryDate = new Date(dateString);
+    const now = new Date();
+    const diffMs = retryDate - now;
+    
+    if (diffMs <= 0) {
+      return t('retryNow');
+    }
+    
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffSecs = Math.floor((diffMs % 60000) / 1000);
+    
+    if (diffMins > 0) {
+      return `${diffMins} ${t('minutes')} ${diffSecs} ${t('seconds')}`;
+    } else {
+      return `${diffSecs} ${t('seconds')}`;
+    }
+  };
+
+  const openDirectory = (path) => {
+    // Extract directory from file path
+    const pathParts = path.split('/');
+    pathParts.pop(); // Remove filename
+    const directory = pathParts.join('/');
+    
+    // Use platform-specific commands to open directory
+    if (navigator.platform.toLowerCase().includes('win')) {
+      // Windows
+      window.open(`file:///${directory.replace(/\//g, '\\')}`);
+    } else {
+      // Linux/Mac - try to open with file manager
+      fetch(`${API_URL}/api/translation/open-directory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: directory })
+      }).catch(err => {
+        console.error('Failed to open directory:', err);
+        alert(`Directory: ${directory}\n\nPlease open this directory manually.`);
+      });
+    }
+  };
+
   const getOutputPath = (job) => {
     if (job.status !== 'completed') return null;
     // Use stored output path if available, otherwise construct from settings
@@ -282,10 +324,17 @@ function HistoryTab({ settings, onTranslationReady }) {
                   </div>
 
                   {/* Output Path */}
-                  {job.status === 'completed' && (
+                  {job.status === 'completed' && getOutputPath(job) && (
                     <div className="output-path">
                       <span className="detail-label">📁 {t('output')}:</span>
                       <code>{getOutputPath(job)}</code>
+                      <button 
+                        onClick={() => openDirectory(getOutputPath(job))}
+                        className="btn-small btn-info"
+                        title={t('openDirectory')}
+                      >
+                        📂 {t('openDirectory')}
+                      </button>
                     </div>
                   )}
 
@@ -426,7 +475,17 @@ function HistoryTab({ settings, onTranslationReady }) {
                           </div>
                           {chunk.retry_count > 0 && (
                             <div className="chunk-retry-count">
-                              Retries: {chunk.retry_count}
+                              <span>Retries: {chunk.retry_count}</span>
+                              {chunk.next_retry_at && (
+                                <span className="next-retry-time">
+                                  • Next retry: {formatRetryTime(chunk.next_retry_at)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {chunk.status === 'pending' && (
+                            <div className="chunk-pending-info">
+                              ⏳ {t('pending')} - {t('willProcessSoon')}
                             </div>
                           )}
                         </div>

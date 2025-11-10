@@ -89,13 +89,29 @@ class TranslationChunk {
     stmt.run(translatedText, status, id);
   }
 
-  static markFailed(id, errorMessage) {
+  static markFailed(id, errorMessage, isRateLimit = false) {
+    // Calculate next retry time based on error type
+    let nextRetryAt = null;
+    if (isRateLimit) {
+      // For rate limits, retry in 5-10 minutes
+      const retryMinutes = 5 + Math.floor(Math.random() * 5); // 5-10 minutes
+      const retryDate = new Date();
+      retryDate.setMinutes(retryDate.getMinutes() + retryMinutes);
+      nextRetryAt = retryDate.toISOString();
+    } else {
+      // For other errors, retry in 1 minute
+      const retryDate = new Date();
+      retryDate.setMinutes(retryDate.getMinutes() + 1);
+      nextRetryAt = retryDate.toISOString();
+    }
+    
     const stmt = db.prepare(`
       UPDATE translation_chunks 
-      SET status = 'failed', error_message = ?, retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP
+      SET status = 'failed', error_message = ?, retry_count = retry_count + 1, 
+          next_retry_at = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
-    stmt.run(errorMessage, id);
+    stmt.run(errorMessage, nextRetryAt, id);
   }
 
   static resetForRetry(jobId) {
