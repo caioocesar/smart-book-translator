@@ -56,8 +56,11 @@ router.delete('/:key', (req, res) => {
 
 // Test API credentials
 router.post('/test-api', async (req, res) => {
+  let provider;
   try {
-    const { provider, apiKey, options } = req.body;
+    ({ provider, apiKey: req.body.apiKey, options: req.body.options } = req.body);
+    const { apiKey, options } = req.body;
+    provider = provider || req.body.provider;
 
     if (!provider) {
       return res.status(400).json({ error: 'Provider is required' });
@@ -65,6 +68,9 @@ router.post('/test-api', async (req, res) => {
 
     // Google doesn't need an API key
     if (provider === 'google' || provider === 'google-translate') {
+      Logger.logConnection(provider, 'test', true, { 
+        message: 'Google Translate - no API key needed'
+      });
       return res.json({
         success: true,
         message: 'Google Translate is available (no API key needed)',
@@ -73,6 +79,9 @@ router.post('/test-api', async (req, res) => {
     }
 
     if (!apiKey) {
+      Logger.logConnection(provider, 'test', false, { 
+        error: 'API key is required'
+      });
       return res.status(400).json({ error: 'API key is required' });
     }
 
@@ -104,8 +113,9 @@ router.post('/test-api', async (req, res) => {
       testTranslation: result.translatedText
     });
   } catch (error) {
-    // Log connection failure
-    Logger.logConnection(provider, 'test', false, { 
+    // Log connection failure (provider is now in outer scope)
+    const providerName = provider || 'unknown';
+    Logger.logConnection(providerName, 'test', false, { 
       error: error.message,
       stack: error.stack 
     });

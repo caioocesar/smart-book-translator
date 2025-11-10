@@ -48,8 +48,10 @@ const upload = multer({
 
 // Upload and start translation
 router.post('/upload', upload.single('document'), async (req, res) => {
+  let filePath;
   try {
     if (!req.file) {
+      Logger.logError('upload', 'No file uploaded', null, {});
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
@@ -61,16 +63,51 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       apiKey
     } = req.body;
 
-    if (!sourceLanguage || !targetLanguage || !apiProvider || !apiKey) {
-      return res.status(400).json({ error: 'Missing required parameters' });
+    if (!sourceLanguage || !targetLanguage || !apiProvider) {
+      Logger.logError('upload', 'Missing required parameters', null, {
+        hasSourceLanguage: !!sourceLanguage,
+        hasTargetLanguage: !!targetLanguage,
+        hasApiProvider: !!apiProvider,
+        hasApiKey: !!apiKey
+      });
+      return res.status(400).json({ error: 'Missing required parameters: sourceLanguage, targetLanguage, and apiProvider are required' });
     }
 
-    const filePath = req.file.path;
-    const fileExt = path.extname(req.file.originalname).substring(1);
+    // Google doesn't need API key
+    if (apiProvider !== 'google' && apiProvider !== 'google-translate' && !apiKey) {
+      Logger.logError('upload', 'API key required', null, { apiProvider });
+      return res.status(400).json({ error: 'API key is required for this provider' });
+    }
+
+    filePath = req.file.path;
+    const fileExt = path.extname(req.file.originalname).substring(1).toLowerCase();
+
+    Logger.logError('upload', 'Starting document parse', null, {
+      filename: req.file.originalname,
+      fileExt,
+      fileSize: req.file.size
+    });
 
     // Parse document
     const parsed = await DocumentParser.parse(filePath, fileExt);
+    
+    if (!parsed || !parsed.text || parsed.text.trim().length === 0) {
+      Logger.logError('upload', 'Document parsed but contains no text', null, {
+        filename: req.file.originalname,
+        fileExt
+      });
+      throw new Error('Document parsed successfully but contains no text. The file might be empty or corrupted.');
+    }
+
     const chunks = DocumentParser.splitIntoChunks(parsed.text);
+
+    if (chunks.length === 0) {
+      Logger.logError('upload', 'No chunks created from document', null, {
+        filename: req.file.originalname,
+        textLength: parsed.text.length
+      });
+      throw new Error('Could not split document into chunks. The document might be too small or contain only whitespace.');
+    }
 
     // Create translation job
     const jobId = TranslationJob.create(
@@ -88,7 +125,15 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     });
 
     // Clean up uploaded file
-    fs.unlinkSync(filePath);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    Logger.logError('upload', 'Upload successful', null, {
+      jobId,
+      totalChunks: chunks.length,
+      fileExt
+    });
 
     res.json({
       jobId,
@@ -96,8 +141,23 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       metadata: parsed.metadata
     });
   } catch (error) {
+    // Clean up uploaded file on error
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (unlinkError) {
+        console.error('Failed to clean up uploaded file:', unlinkError);
+      }
+    }
+
+    Logger.logError('upload', 'Upload failed', error, {
+      filename: req.file?.originalname,
+      fileExt: req.file ? path.extname(req.file.originalname).substring(1) : 'unknown',
+      errorMessage: error.message
+    });
+
     console.error('Upload error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || 'Upload failed' });
   }
 });
 
@@ -217,10 +277,47 @@ router.post('/retry/:jobId', async (req, res) => {
 // Get all jobs
 router.get('/jobs', async (req, res) => {
   try {
-    const jobs = TranslationJob.getAll();
-    res.json(jobs);
+    const limit = parseInt(req.query.limit) || 50;
+    const jobs = TranslationJob.getAll(limit);
+    
+    // Add progress information for each job
+    const jobsWithProgress = jobs.map(job => {
+      try {
+        const chunks = TranslationChunk.getByJob(job.id);
+        const completed = chunks.filter(c => c.status === 'completed').length;
+        const failed = chunks.filter(c => c.status === 'failed').length;
+        const pending = chunks.filter(c => c.status === 'pending').length;
+        
+        return {
+          ...job,
+          progress: {
+            total: chunks.length,
+            completed,
+            failed,
+            pending,
+            percentage: chunks.length > 0 ? Math.round((completed / chunks.length) * 100) : 0
+          }
+        };
+      } catch (err) {
+        console.error(`Error getting progress for job ${job.id}:`, err);
+        return {
+          ...job,
+          progress: {
+            total: job.total_chunks || 0,
+            completed: job.completed_chunks || 0,
+            failed: job.failed_chunks || 0,
+            pending: 0,
+            percentage: 0
+          }
+        };
+      }
+    });
+    
+    res.json(jobsWithProgress);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    Logger.logError('translation', 'Failed to load translation history', error, {});
+    console.error('Error loading jobs:', error);
+    res.status(500).json({ error: error.message || 'Failed to load translation history' });
   }
 });
 
