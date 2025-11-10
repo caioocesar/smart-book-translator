@@ -130,6 +130,30 @@ function TranslationTab({ settings }) {
   };
 
   const testApiConnection = async () => {
+    // Google doesn't need an API key
+    if (apiProvider === 'google' || apiProvider === 'google-translate') {
+      setTestingConnection(true);
+      setConnectionTestResult(null);
+      try {
+        const response = await axios.post(`${API_URL}/api/settings/test-api`, {
+          provider: 'google',
+          apiKey: ''
+        });
+        setConnectionTestResult({
+          success: true,
+          message: '✓ Google Translate is available (no API key needed)',
+          testTranslation: response.data.testTranslation || 'Hola'
+        });
+      } catch (err) {
+        setConnectionTestResult({
+          success: false,
+          message: `✗ ${err.response?.data?.error || err.message}`
+        });
+      } finally {
+        setTestingConnection(false);
+      return;
+    }
+
     if (!apiKey) {
       setConnectionTestResult({ success: false, message: 'Please enter an API key first' });
       return;

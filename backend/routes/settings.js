@@ -58,8 +58,21 @@ router.post('/test-api', async (req, res) => {
   try {
     const { provider, apiKey, options } = req.body;
 
-    if (!provider || !apiKey) {
-      return res.status(400).json({ error: 'Provider and API key are required' });
+    if (!provider) {
+      return res.status(400).json({ error: 'Provider is required' });
+    }
+
+    // Google doesn't need an API key
+    if (provider === 'google' || provider === 'google-translate') {
+      return res.json({
+        success: true,
+        message: 'Google Translate is available (no API key needed)',
+        testTranslation: 'Hola'
+      });
+    }
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key is required' });
     }
 
     // For OpenAI, ensure we have a valid model option
@@ -81,9 +94,63 @@ router.post('/test-api', async (req, res) => {
   } catch (error) {
     // Return proper error message
     const errorMessage = error.message || 'Test failed';
+    console.error('API test error:', errorMessage);
     res.status(400).json({
       success: false,
       error: errorMessage
+    });
+  }
+});
+
+// Get available OpenAI models for the user
+router.post('/check-models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key is required' });
+    }
+
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({ apiKey });
+
+    // Try to get available models
+    const availableModels = [];
+    const modelsToTest = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'];
+
+    for (const model of modelsToTest) {
+      try {
+        // Try a minimal test request
+        await openai.chat.completions.create({
+          model: model,
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 5
+        });
+        availableModels.push(model);
+      } catch (err) {
+        // Model not available or no access
+        if (err.status !== 404 && err.status !== 401) {
+          // If it's not a 404 or 401, might be rate limit - assume available
+          availableModels.push(model);
+        }
+      }
+    }
+
+    // Always include gpt-3.5-turbo as fallback
+    if (!availableModels.includes('gpt-3.5-turbo')) {
+      availableModels.unshift('gpt-3.5-turbo');
+    }
+
+    res.json({
+      available: availableModels,
+      all: modelsToTest
+    });
+  } catch (error) {
+    // On error, return default models
+    res.json({
+      available: ['gpt-3.5-turbo'],
+      all: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'],
+      error: error.message
     });
   }
 });

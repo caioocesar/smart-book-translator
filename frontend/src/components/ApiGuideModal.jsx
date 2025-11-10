@@ -180,8 +180,15 @@ function ApiGuideModal({ provider, onClose, t }) {
         <div className="guide-content">
           {/* Steps */}
           <div className="guide-steps">
-            {guide.steps.map((step, index) => (
-              <div key={index} className="guide-step">
+            {guide.steps.map((step, index) => {
+              // Determine step type based on title emoji
+              let stepType = '';
+              if (step.title.includes('✅')) stepType = 'success';
+              else if (step.title.includes('⚠️')) stepType = 'warning';
+              else if (step.title.includes('💡') || step.title.includes('ℹ️')) stepType = 'info';
+              
+              return (
+              <div key={index} className="guide-step" data-type={stepType}>
                 <h3>{step.title}</h3>
                 <p>{step.content}</p>
                 
@@ -210,7 +217,8 @@ function ApiGuideModal({ provider, onClose, t }) {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Pricing Info */}

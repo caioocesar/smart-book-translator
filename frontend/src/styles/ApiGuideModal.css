@@ -81,10 +81,45 @@
 }
 
 .guide-step p {
-  color: #495057;
+  color: #2c3e50;
   line-height: 1.7;
   margin-bottom: 0.75rem;
   font-size: 0.95rem;
+  font-weight: 500;
+}
+
+/* Special styling for steps with emoji indicators (success/warning/info) */
+.guide-step[data-type="success"] {
+  background: #d1e7dd;
+  border-left-color: #28a745;
+}
+
+.guide-step[data-type="success"] p,
+.guide-step[data-type="success"] .step-details li {
+  color: #0f5132;
+  font-weight: 600;
+}
+
+.guide-step[data-type="warning"] {
+  background: #fff3cd;
+  border-left-color: #ffc107;
+}
+
+.guide-step[data-type="warning"] p,
+.guide-step[data-type="warning"] .step-details li {
+  color: #664d03;
+  font-weight: 600;
+}
+
+.guide-step[data-type="info"] {
+  background: #cfe2ff;
+  border-left-color: #0d6efd;
+}
+
+.guide-step[data-type="info"] p,
+.guide-step[data-type="info"] .step-details li {
+  color: #084298;
+  font-weight: 600;
 }
 
 .step-details {

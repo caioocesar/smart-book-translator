@@ -111,8 +111,33 @@ echo "=========================================="
 echo ""
 echo "Changes applied. Your data and settings are preserved."
 echo ""
-echo "To start the application:"
-echo "  ./run.sh"
+
+# Ask if user wants to start the application
+read -p "Do you want to start the application now? (y/n) " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    print_info "Starting application..."
+    if [ -f "./start.sh" ]; then
+        bash ./start.sh &
+        sleep 3
+        print_success "Application started!"
+        print_info "Check the console output above for the frontend URL"
+    elif [ -f "./launch.sh" ]; then
+        bash ./launch.sh &
+        print_success "Application launched!"
+    else
+        print_info "Start scripts not found. Please start manually:"
+        echo "  cd backend && npm start"
+        echo "  cd frontend && npm run dev"
+    fi
+else
+    echo ""
+    echo "To start the application later:"
+    echo "  ./start.sh"
+    echo "  or"
+    echo "  ./launch.sh"
+fi
 echo ""
 
 

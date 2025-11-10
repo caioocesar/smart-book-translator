@@ -15,6 +15,7 @@ function SettingsTab({ onSettingsUpdate }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [availableModels, setAvailableModels] = useState(['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o']);
 
   useEffect(() => {
     loadSettings();
@@ -56,6 +57,26 @@ function SettingsTab({ onSettingsUpdate }) {
     }
   };
 
+  const checkAvailableModels = async (apiKey) => {
+    if (!apiKey) return;
+    
+    try {
+      const response = await axios.post(`${API_URL}/api/settings/check-models`, {
+        apiKey
+      });
+      if (response.data.available && response.data.available.length > 0) {
+        setAvailableModels(response.data.available);
+        // If current model is not available, switch to first available
+        if (!response.data.available.includes(settings.openai_model)) {
+          setSettings({ ...settings, openai_model: response.data.available[0] });
+        }
+      }
+    } catch (err) {
+      console.error('Could not check available models:', err);
+      // Keep default models on error
+    }
+  };
+
   const handleTestApi = async (provider) => {
     setError('');
     const apiKey = settings[`${provider}_api_key`];
@@ -77,6 +98,11 @@ function SettingsTab({ onSettingsUpdate }) {
         apiKey,
         options
       });
+
+      // If OpenAI test succeeds, check available models
+      if (provider === 'openai' && response.data.success) {
+        await checkAvailableModels(apiKey);
+      }
 
       setTestResults({ 
         ...testResults, 
@@ -180,10 +206,27 @@ function SettingsTab({ onSettingsUpdate }) {
             value={settings.openai_model}
             onChange={(e) => setSettings({...settings, openai_model: e.target.value})}
           >
-            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Faster, Cheaper)</option>
-            <option value="gpt-4">GPT-4 (Better Quality, More Expensive)</option>
-            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            {availableModels.includes('gpt-3.5-turbo') && (
+              <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Faster, Cheaper)</option>
+            )}
+            {availableModels.includes('gpt-4') && (
+              <option value="gpt-4">GPT-4 (Better Quality, More Expensive)</option>
+            )}
+            {availableModels.includes('gpt-4-turbo') && (
+              <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            )}
+            {availableModels.includes('gpt-4o') && (
+              <option value="gpt-4o">GPT-4o (Latest, Recommended)</option>
+            )}
+            {availableModels.length === 0 && (
+              <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Default)</option>
+            )}
           </select>
+          {availableModels.length < 4 && (
+            <p className="help-text" style={{ fontSize: '0.85rem', color: '#6c757d', marginTop: '0.5rem' }}>
+              Only showing models you have access to. Test your API key to detect available models.
+            </p>
+          )}
         </div>
         <div className="api-info">
           <p>Get your API key at: <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer">platform.openai.com</a></p>
