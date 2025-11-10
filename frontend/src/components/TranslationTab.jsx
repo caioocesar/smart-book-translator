@@ -148,7 +148,9 @@ function TranslationTab({ settings }) {
 
   useEffect(() => {
     // Load all API limits on mount
-    checkAllApiLimits();
+    checkAllApiLimits().catch(err => {
+      console.error('Error loading API limits:', err);
+    });
   }, []);
 
   const testApiConnection = async () => {
