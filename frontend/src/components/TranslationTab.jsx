@@ -167,10 +167,15 @@ function TranslationTab({ settings }) {
     setError('');
     
     try {
+      const options = {};
+      if (apiProvider === 'openai' || apiProvider === 'chatgpt') {
+        options.model = openaiModel || settings.openai_model || 'gpt-3.5-turbo';
+      }
+      
       const response = await axios.post(`${API_URL}/api/settings/check-limits`, {
         provider: apiProvider,
         apiKey: apiKey || 'not-needed-for-google',
-        options: apiProvider === 'openai' || apiProvider === 'chatgpt' ? { model: settings.openai_model || 'gpt-3.5-turbo' } : {}
+        options
       });
       setApiLimits(response.data);
     } catch (err) {
@@ -284,9 +289,15 @@ function TranslationTab({ settings }) {
       setCurrentJob(jobId);
       
       // Start translation
+      const apiOptions = { ...(settings[`${apiProvider}_options`] || {}) };
+      // Override model if OpenAI/ChatGPT and model is set in translation tab
+      if ((apiProvider === 'openai' || apiProvider === 'chatgpt') && openaiModel) {
+        apiOptions.model = openaiModel;
+      }
+      
       await axios.post(`${API_URL}/api/translation/translate/${jobId}`, {
         apiKey,
-        apiOptions: settings[`${apiProvider}_options`] || {}
+        apiOptions
       });
 
       // Start polling for progress
