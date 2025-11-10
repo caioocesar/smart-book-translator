@@ -11,6 +11,7 @@ import DocumentBuilder from '../services/documentBuilder.js';
 import { TranslationJob, TranslationChunk } from '../models/TranslationJob.js';
 import Settings from '../models/Settings.js';
 import Logger from '../utils/logger.js';
+import RateLimiter from '../utils/rateLimiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -390,28 +391,45 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
     apiOptions
   );
 
+  // Initialize smart rate limiter
+  const rateLimiter = new RateLimiter(provider);
+  
   let completed = 0;
   let failed = 0;
   const maxRetries = 3;
+  const totalChunks = chunks.length;
   
-  for (const chunk of chunks) {
+  // Check if we should pause before starting
+  if (rateLimiter.shouldPause()) {
+    const pauseDuration = rateLimiter.getPauseDuration();
+    if (pauseDuration > 0) {
+      console.log(`⏸️  Rate limiter recommends pausing for ${pauseDuration/1000}s before starting translation`);
+      Logger.logError('translation', 'Rate limiter pause before start', null, {
+        jobId,
+        pauseDuration: pauseDuration / 1000,
+        status: rateLimiter.getStatus()
+      });
+      await new Promise(resolve => setTimeout(resolve, pauseDuration));
+    }
+  }
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const chunksRemaining = chunks.length - i - 1;
     let chunkCompleted = false;
     let attempts = 0;
     
     while (!chunkCompleted && attempts < maxRetries) {
       try {
-        // Add delay to respect rate limits
-        // Google Translate: 2-3 seconds (free API is very strict)
-        // DeepL: 1 second (20 requests/min = 3 seconds per request)
-        // OpenAI: 2 seconds (varies by plan)
-        let delay = 1000;
-        if (provider === 'google' || provider === 'google-translate') {
-          delay = 3000; // 3 seconds for Google (very strict rate limits)
-        } else if (provider === 'deepl') {
-          delay = 3000; // 3 seconds for DeepL (20 req/min = 3 sec/req)
-        } else if (provider === 'openai' || provider === 'chatgpt') {
-          delay = 2000; // 2 seconds for OpenAI
+        // Calculate smart delay based on multiple factors
+        const delay = rateLimiter.calculateDelay(chunksRemaining, totalChunks);
+        
+        // Log delay information for debugging
+        if (i % 10 === 0 || delay > rateLimiter.baseDelay * 1.5) {
+          const status = rateLimiter.getStatus();
+          console.log(`📊 Chunk ${chunk.chunk_index + 1}/${totalChunks} - Delay: ${delay/1000}s | Success rate: ${(status.successRate * 100).toFixed(0)}% | Rate limit errors: ${status.recentRateLimitErrors}`);
         }
+        
         await new Promise(resolve => setTimeout(resolve, delay));
 
         const result = await translationService.translate(
@@ -423,56 +441,100 @@ async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) 
         TranslationChunk.updateTranslation(chunk.id, result.translatedText);
         completed++;
         TranslationJob.updateProgress(jobId, completed, failed);
+        
+        // Record success in rate limiter
+        rateLimiter.recordSuccess();
         chunkCompleted = true;
       } catch (error) {
         attempts++;
         const isRateLimit = error.message.includes('Rate limit') || 
                            error.message.includes('rate limit') ||
-                           error.message.includes('429');
+                           error.message.includes('429') ||
+                           error.message.includes('Too Many Requests') ||
+                           error.message.includes('quota exceeded');
+        
+        // Record error in rate limiter
+        if (isRateLimit) {
+          rateLimiter.recordRateLimitError();
+        } else {
+          rateLimiter.recordError();
+        }
         
         // Log chunk translation error
+        const rateLimiterStatus = rateLimiter.getStatus();
         Logger.logError('translation', `Chunk ${chunk.chunk_index} translation failed`, error, {
           jobId,
           chunkIndex: chunk.chunk_index,
           attempts,
           maxRetries,
           isRateLimit,
-          provider
+          provider,
+          rateLimiterStatus
         });
         
         if (isRateLimit && attempts < maxRetries) {
-          // Exponential backoff for rate limits
-          const waitTime = Math.min(60000 * Math.pow(2, attempts - 1), 300000); // Max 5 minutes
-          console.log(`Rate limit hit for chunk ${chunk.chunk_index}, waiting ${waitTime/1000}s before retry ${attempts}/${maxRetries}`);
+          // Use rate limiter's recommended pause duration
+          const pauseDuration = rateLimiter.getPauseDuration();
+          const waitTime = pauseDuration > 0 
+            ? pauseDuration 
+            : Math.min(60000 * Math.pow(2, attempts - 1), 300000); // Fallback: Max 5 minutes
+          
+          console.log(`⏸️  Rate limit hit for chunk ${chunk.chunk_index}, waiting ${waitTime/1000}s before retry ${attempts}/${maxRetries}`);
+          console.log(`📊 Rate limiter status:`, rateLimiterStatus);
+          
           Logger.logError('translation', `Rate limit retry for chunk ${chunk.chunk_index}`, null, {
             jobId,
             chunkIndex: chunk.chunk_index,
             attempt: attempts,
-            waitTime: waitTime / 1000
+            waitTime: waitTime / 1000,
+            rateLimiterStatus
           });
+          
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue; // Retry this chunk
         } else {
           // Max retries reached or non-rate-limit error
-          console.error(`Chunk ${chunk.chunk_index} failed after ${attempts} attempts:`, error.message);
+          console.error(`❌ Chunk ${chunk.chunk_index} failed after ${attempts} attempts:`, error.message);
           TranslationChunk.markFailed(chunk.id, error.message, isRateLimit);
           failed++;
           TranslationJob.updateProgress(jobId, completed, failed);
           chunkCompleted = true; // Move to next chunk
           
-          // If rate limit and we've exhausted retries, wait before next chunk
+          // If rate limit and we've exhausted retries, use rate limiter's recommendation
           if (isRateLimit) {
-            console.log('Rate limit exhausted, waiting 2 minutes before continuing...');
+            const pauseDuration = rateLimiter.getPauseDuration() || 120000; // Default 2 minutes
+            console.log(`⏸️  Rate limit exhausted, waiting ${pauseDuration/1000}s before continuing...`);
             Logger.logError('translation', 'Rate limit exhausted, waiting before next chunk', null, {
               jobId,
-              waitTime: 120
+              waitTime: pauseDuration / 1000,
+              rateLimiterStatus: rateLimiter.getStatus()
             });
-            await new Promise(resolve => setTimeout(resolve, 120000));
+            await new Promise(resolve => setTimeout(resolve, pauseDuration));
           }
         }
       }
     }
+    
+    // Check if we should pause between chunks (if rate limiter recommends it)
+    if (chunksRemaining > 0 && rateLimiter.shouldPause()) {
+      const pauseDuration = rateLimiter.getPauseDuration();
+      if (pauseDuration > 0) {
+        console.log(`⏸️  Rate limiter recommends pausing for ${pauseDuration/1000}s before next chunk`);
+        await new Promise(resolve => setTimeout(resolve, pauseDuration));
+      }
+    }
   }
+
+  // Log final rate limiter status
+  const finalStatus = rateLimiter.getStatus();
+  console.log(`✅ Translation job ${jobId} completed. Rate limiter final status:`, finalStatus);
+  Logger.logError('translation', 'Translation job completed', null, {
+    jobId,
+    completed,
+    failed,
+    totalChunks,
+    rateLimiterStatus: finalStatus
+  });
 
   if (failed === 0) {
     TranslationJob.updateStatus(jobId, 'completed');
