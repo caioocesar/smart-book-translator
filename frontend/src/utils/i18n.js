@@ -130,6 +130,8 @@ const translations = {
     chatgptApiKey: 'ChatGPT API Key',
     outputDirectory: 'Output Directory',
     chunkSize: 'Chunk Size',
+    autoRetryFailed: 'Auto-Retry Failed Chunks',
+    autoResumePending: 'Auto-Resume Pending Translations',
     saveSettings: 'Save Settings',
     getCredentials: 'How to get credentials',
     
@@ -307,6 +309,8 @@ const translations = {
     chatgptApiKey: 'Chave da API ChatGPT',
     outputDirectory: 'Diretório de Saída',
     chunkSize: 'Tamanho da Parte',
+    autoRetryFailed: 'Tentar Novamente Automaticamente Partes Falhadas',
+    autoResumePending: 'Retomar Automaticamente Traduções Pendentes',
     saveSettings: 'Salvar Configurações',
     getCredentials: 'Como obter credenciais',
     

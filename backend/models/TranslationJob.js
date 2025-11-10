@@ -117,10 +117,40 @@ class TranslationChunk {
   static resetForRetry(jobId) {
     const stmt = db.prepare(`
       UPDATE translation_chunks 
-      SET status = 'pending', error_message = NULL
+      SET status = 'pending', error_message = NULL, next_retry_at = NULL
       WHERE job_id = ? AND status = 'failed'
     `);
     stmt.run(jobId);
+  }
+
+  static getFailedReadyForRetry() {
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      SELECT * FROM translation_chunks 
+      WHERE status = 'failed' 
+        AND next_retry_at IS NOT NULL 
+        AND next_retry_at <= ?
+      ORDER BY next_retry_at ASC
+    `);
+    return stmt.all(now);
+  }
+
+  static getJobsWithPendingChunks() {
+    const stmt = db.prepare(`
+      SELECT DISTINCT job_id 
+      FROM translation_chunks 
+      WHERE status = 'pending'
+    `);
+    return stmt.all().map(row => row.job_id);
+  }
+
+  static markChunkForRetry(chunkId) {
+    const stmt = db.prepare(`
+      UPDATE translation_chunks 
+      SET status = 'pending', error_message = NULL, next_retry_at = NULL
+      WHERE id = ?
+    `);
+    stmt.run(chunkId);
   }
 }
 

@@ -378,8 +378,8 @@ router.post('/retry-all/:jobId', async (req, res) => {
   }
 });
 
-// Background translation function
-async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) {
+// Background translation function (exported for use by auto-retry service)
+export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) {
   const job = TranslationJob.get(jobId);
   const chunks = TranslationChunk.getPending(jobId);
   

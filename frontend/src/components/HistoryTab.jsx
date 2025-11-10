@@ -33,7 +33,17 @@ function HistoryTab({ settings, onTranslationReady }) {
       loadJobs();
       loadStorageInfo();
     }, 10000);
-    return () => clearInterval(interval);
+    
+    // Update retry countdown every second for real-time display
+    const countdownInterval = setInterval(() => {
+      // Force re-render to update countdown timers
+      setJobs(prev => [...prev]);
+    }, 1000);
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(countdownInterval);
+    };
   }, []);
 
   const loadJobs = async () => {

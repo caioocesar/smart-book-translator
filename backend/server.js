@@ -20,6 +20,9 @@ import './database/db.js';
 // Run startup tests
 import TestRunner from './tests/testRunner.js';
 
+// Import auto-retry service
+import autoRetryService from './services/autoRetryService.js';
+
 async function runStartupTests() {
   console.log('\n🚀 Starting Smart Book Translator...\n');
   const runner = new TestRunner();
@@ -170,6 +173,9 @@ async function startServer() {
         
         // Run startup tests
         await runStartupTests();
+        
+        // Start auto-retry service
+        autoRetryService.start();
         
         console.log('🎉 Smart Book Translator is ready!');
         console.log(`\n📝 Backend Port: ${currentPort}`);

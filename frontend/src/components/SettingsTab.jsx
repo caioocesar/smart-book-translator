@@ -9,7 +9,9 @@ function SettingsTab({ onSettingsUpdate }) {
     openai_api_key: '',
     openai_model: 'gpt-3.5-turbo',
     outputDirectory: '',
-    chunkSize: 3000
+    chunkSize: 3000,
+    autoRetryFailed: true,
+    autoResumePending: true
   });
   const [testResults, setTestResults] = useState({});
   const [error, setError] = useState('');
@@ -262,6 +264,34 @@ function SettingsTab({ onSettingsUpdate }) {
           />
           <p className="help-text">
             Larger chunks = fewer API calls but may hit limits. Recommended: 3000-5000
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.autoRetryFailed !== false}
+              onChange={(e) => setSettings({...settings, autoRetryFailed: e.target.checked})}
+            />
+            <span>🔄 Auto-Retry Failed Chunks</span>
+          </label>
+          <p className="help-text">
+            Automatically retry failed chunks when their scheduled retry time arrives (default: enabled)
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.autoResumePending !== false}
+              onChange={(e) => setSettings({...settings, autoResumePending: e.target.checked})}
+            />
+            <span>▶️ Auto-Resume Pending Translations</span>
+          </label>
+          <p className="help-text">
+            Automatically resume pending translations when opening the application (default: enabled)
           </p>
         </div>
       </div>
