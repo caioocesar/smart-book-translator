@@ -30,6 +30,22 @@ const translations = {
     refreshLimits: 'Refresh Limits',
     apiLimits: 'API Limits',
     noApiKey: 'No API key required for Google Translate',
+    analyzingDocument: 'Analyzing document...',
+    
+    // Document Info
+    documentInfo: 'Document Information',
+    fileSize: 'File Size',
+    characterCount: 'Characters',
+    wordCount: 'Words',
+    pages: 'Pages',
+    estimatedChunks: 'Estimated Chunks',
+    recommendedModels: 'Recommended Models',
+    bestChoice: 'Best Choice',
+    chunkSize: 'Chunk Size',
+    characters: 'chars',
+    estimatedCost: 'Estimated Cost',
+    supportsGlossary: 'Supports Glossary',
+    preservesFormatting: 'Preserves Formatting',
     
     // API Providers
     providerDeepL: 'DeepL',
@@ -222,6 +238,22 @@ const translations = {
     refreshLimits: 'Atualizar Limites',
     apiLimits: 'Limites da API',
     noApiKey: 'Nenhuma chave de API necessária para Google Translate',
+    analyzingDocument: 'Analisando documento...',
+    
+    // Document Info
+    documentInfo: 'Informações do Documento',
+    fileSize: 'Tamanho do Arquivo',
+    characterCount: 'Caracteres',
+    wordCount: 'Palavras',
+    pages: 'Páginas',
+    estimatedChunks: 'Chunks Estimados',
+    recommendedModels: 'Modelos Recomendados',
+    bestChoice: 'Melhor Escolha',
+    chunkSize: 'Tamanho do Chunk',
+    characters: 'caracteres',
+    estimatedCost: 'Custo Estimado',
+    supportsGlossary: 'Suporta Glossário',
+    preservesFormatting: 'Preserva Formatação',
     
     // API Providers
     providerDeepL: 'DeepL',
@@ -414,6 +446,22 @@ const translations = {
     refreshLimits: 'Actualizar Límites',
     apiLimits: 'Límites de API',
     noApiKey: 'No se requiere clave de API para Google Translate',
+    analyzingDocument: 'Analizando documento...',
+    
+    // Document Info
+    documentInfo: 'Información del Documento',
+    fileSize: 'Tamaño del Archivo',
+    characterCount: 'Caracteres',
+    wordCount: 'Palabras',
+    pages: 'Páginas',
+    estimatedChunks: 'Chunks Estimados',
+    recommendedModels: 'Modelos Recomendados',
+    bestChoice: 'Mejor Opción',
+    chunkSize: 'Tamaño del Chunk',
+    characters: 'caracteres',
+    estimatedCost: 'Costo Estimado',
+    supportsGlossary: 'Soporta Glosario',
+    preservesFormatting: 'Preserva Formato',
     
     // API Providers
     providerDeepL: 'DeepL',

@@ -145,10 +145,21 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       fileExt
     });
 
+    // Calculate document statistics
+    const documentStats = {
+      fileSize: req.file.size,
+      characterCount: parsed.text.length,
+      wordCount: parsed.text.split(/\s+/).filter(w => w.length > 0).length,
+      pages: parsed.metadata?.pages || null,
+      estimatedChunks: chunks.length,
+      fileType: fileExt
+    };
+
     res.json({
       jobId,
       totalChunks: chunks.length,
-      metadata: parsed.metadata
+      metadata: parsed.metadata,
+      documentStats
     });
   } catch (error) {
     // Clean up uploaded file on error

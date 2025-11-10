@@ -13,6 +13,8 @@ import glossaryRoutes from './routes/glossary.js';
 import settingsRoutes from './routes/settings.js';
 import healthRoutes from './routes/health.js';
 import termLookupRoutes from './routes/termLookup.js';
+import apiPlansRoutes from './routes/apiPlans.js';
+import documentAnalysisRoutes from './routes/documentAnalysis.js';
 
 // Import database to initialize
 import './database/db.js';
@@ -115,6 +117,8 @@ app.use('/api/translation', translationRoutes);
 app.use('/api/glossary', glossaryRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/term-lookup', termLookupRoutes);
+app.use('/api/plans', apiPlansRoutes);
+app.use('/api/document', documentAnalysisRoutes);
 
 // Port info endpoint
 app.get('/api/port-info', (req, res) => {
@@ -173,6 +177,15 @@ async function startServer() {
         
         // Run startup tests
         await runStartupTests();
+        
+        // Fetch API plans information on startup
+        try {
+          const ApiPlansService = (await import('./services/apiPlansService.js')).default;
+          await ApiPlansService.fetchApiPlans();
+          console.log('✅ API plans information loaded');
+        } catch (error) {
+          console.warn('⚠️  Failed to fetch API plans:', error.message);
+        }
         
         // Start auto-retry service
         autoRetryService.start();

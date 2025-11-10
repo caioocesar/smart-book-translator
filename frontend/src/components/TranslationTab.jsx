@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { t } from '../utils/i18n.js';
+import DocumentInfoBox from './DocumentInfoBox.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -24,6 +25,9 @@ function TranslationTab({ settings }) {
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [refreshingLimits, setRefreshingLimits] = useState(false);
   const [refreshingAllLimits, setRefreshingAllLimits] = useState(false);
+  const [documentInfo, setDocumentInfo] = useState(null);
+  const [recommendations, setRecommendations] = useState(null);
+  const [analyzingDocument, setAnalyzingDocument] = useState(false);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -96,7 +100,30 @@ function TranslationTab({ settings }) {
     }
   };
 
-  const handleFileChange = (e) => {
+  const analyzeDocument = async (selectedFile) => {
+    setAnalyzingDocument(true);
+    setDocumentInfo(null);
+    setRecommendations(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('document', selectedFile);
+      
+      const response = await axios.post(`${API_URL}/api/document/analyze`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      setDocumentInfo(response.data);
+      setRecommendations(response.data.recommendations);
+    } catch (err) {
+      console.error('Failed to analyze document:', err);
+      // Don't show error - analysis is optional
+    } finally {
+      setAnalyzingDocument(false);
+    }
+  };
+
+  const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setFile(selectedFile);
@@ -105,10 +132,12 @@ function TranslationTab({ settings }) {
       if (!outputFormat) {
         setOutputFormat(ext);
       }
+      // Analyze document
+      await analyzeDocument(selectedFile);
     }
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile) {
@@ -117,6 +146,8 @@ function TranslationTab({ settings }) {
       if (!outputFormat) {
         setOutputFormat(ext);
       }
+      // Analyze document
+      await analyzeDocument(droppedFile);
     }
   };
 
@@ -301,6 +332,12 @@ function TranslationTab({ settings }) {
     }
   };
 
+  const handleSelectRecommendation = (rec) => {
+    setApiProvider(rec.provider);
+    // Could also set chunk size in settings if we add that feature
+    console.log('Selected recommendation:', rec);
+  };
+
   return (
     <div className="translation-tab">
       <div className="upload-section">
@@ -332,6 +369,20 @@ function TranslationTab({ settings }) {
             )}
           </label>
         </div>
+
+        {analyzingDocument && (
+          <div className="analyzing-message" style={{ textAlign: 'center', padding: '10px', color: '#667eea' }}>
+            🔍 {t('analyzingDocument')}
+          </div>
+        )}
+
+        {documentInfo && (
+          <DocumentInfoBox 
+            documentInfo={documentInfo}
+            recommendations={recommendations}
+            onSelectRecommendation={handleSelectRecommendation}
+          />
+        )}
 
         <div className="form-grid">
           <div className="form-group">

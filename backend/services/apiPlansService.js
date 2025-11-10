@@ -1,0 +1,285 @@
+/**
+ * API Plans Service
+ * Fetches and caches API plan information from official websites
+ * Provides recommendations based on document size and API limits
+ */
+
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const CACHE_FILE = path.join(__dirname, '..', 'data', 'api-plans-cache.json');
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+// Default API plan information (fallback if fetch fails)
+const DEFAULT_PLANS = {
+  deepl: {
+    free: {
+      name: 'DeepL Free',
+      monthlyLimit: 500000, // characters per month
+      requestsPerMinute: 20,
+      supportsGlossary: false,
+      supportsHtml: true,
+      cost: 0
+    },
+    starter: {
+      name: 'DeepL Pro Starter',
+      monthlyLimit: 1000000, // 1M characters
+      requestsPerMinute: 50,
+      supportsGlossary: true,
+      supportsHtml: true,
+      cost: 5.99 // EUR/month
+    },
+    advanced: {
+      name: 'DeepL Pro Advanced',
+      monthlyLimit: 5000000, // 5M characters
+      requestsPerMinute: 100,
+      supportsGlossary: true,
+      supportsHtml: true,
+      cost: 29.99 // EUR/month
+    },
+    ultimate: {
+      name: 'DeepL Pro Ultimate',
+      monthlyLimit: 20000000, // 20M characters
+      requestsPerMinute: 200,
+      supportsGlossary: true,
+      supportsHtml: true,
+      cost: 99.99 // EUR/month
+    }
+  },
+  openai: {
+    gpt35turbo: {
+      name: 'GPT-3.5 Turbo',
+      contextWindow: 16000, // tokens
+      tokensPerMinute: 40000,
+      requestsPerMinute: 3500,
+      inputCost: 0.0005, // per 1K tokens
+      outputCost: 0.0015, // per 1K tokens
+      supportsGlossary: false,
+      supportsHtml: false
+    },
+    gpt4: {
+      name: 'GPT-4',
+      contextWindow: 8192, // tokens
+      tokensPerMinute: 40000,
+      requestsPerMinute: 500,
+      inputCost: 0.03, // per 1K tokens
+      outputCost: 0.06, // per 1K tokens
+      supportsGlossary: false,
+      supportsHtml: false
+    },
+    gpt4turbo: {
+      name: 'GPT-4 Turbo',
+      contextWindow: 128000, // tokens
+      tokensPerMinute: 200000,
+      requestsPerMinute: 5000,
+      inputCost: 0.01, // per 1K tokens
+      outputCost: 0.03, // per 1K tokens
+      supportsGlossary: false,
+      supportsHtml: false
+    },
+    gpt4o: {
+      name: 'GPT-4o',
+      contextWindow: 128000, // tokens
+      tokensPerMinute: 200000,
+      requestsPerMinute: 5000,
+      inputCost: 0.0025, // per 1K tokens
+      outputCost: 0.01, // per 1K tokens
+      supportsGlossary: false,
+      supportsHtml: false
+    }
+  },
+  google: {
+    free: {
+      name: 'Google Translate (Free)',
+      monthlyLimit: null, // unlimited (but rate limited)
+      requestsPerMinute: null, // undocumented
+      supportsGlossary: false,
+      supportsHtml: false,
+      cost: 0,
+      warning: 'May be rate-limited for heavy usage'
+    }
+  }
+};
+
+class ApiPlansService {
+  /**
+   * Load cached plans or return defaults
+   */
+  static loadCachedPlans() {
+    try {
+      if (fs.existsSync(CACHE_FILE)) {
+        const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+        const now = Date.now();
+        
+        // Check if cache is still valid
+        if (cacheData.timestamp && (now - cacheData.timestamp) < CACHE_DURATION) {
+          return cacheData.plans;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load cached API plans:', error.message);
+    }
+    
+    return DEFAULT_PLANS;
+  }
+
+  /**
+   * Save plans to cache
+   */
+  static saveCachedPlans(plans) {
+    try {
+      const cacheDir = path.dirname(CACHE_FILE);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(CACHE_FILE, JSON.stringify({
+        timestamp: Date.now(),
+        plans
+      }, null, 2));
+    } catch (error) {
+      console.warn('Failed to save cached API plans:', error.message);
+    }
+  }
+
+  /**
+   * Fetch API plan information from websites
+   * This is a placeholder - in production, you might scrape or use official APIs
+   */
+  static async fetchApiPlans() {
+    // For now, return defaults
+    // In the future, could fetch from:
+    // - DeepL API pricing page
+    // - OpenAI pricing page
+    // - Google Cloud pricing page
+    
+    const plans = { ...DEFAULT_PLANS };
+    
+    // Try to fetch updated information (placeholder for future implementation)
+    // For now, we'll use the defaults which are based on current documentation
+    
+    this.saveCachedPlans(plans);
+    return plans;
+  }
+
+  /**
+   * Get API plans (cached or fresh)
+   */
+  static async getApiPlans(forceRefresh = false) {
+    if (forceRefresh) {
+      return await this.fetchApiPlans();
+    }
+    
+    const cached = this.loadCachedPlans();
+    if (cached) {
+      return cached;
+    }
+    
+    return await this.fetchApiPlans();
+  }
+
+  /**
+   * Recommend API and model based on document size
+   */
+  static recommendApi(documentSize, characterCount, hasGlossary = false) {
+    const recommendations = [];
+    
+    // DeepL recommendations
+    const deeplFree = DEFAULT_PLANS.deepl.free;
+    const deeplStarter = DEFAULT_PLANS.deepl.starter;
+    
+    if (characterCount <= deeplFree.monthlyLimit) {
+      recommendations.push({
+        provider: 'deepl',
+        plan: 'free',
+        model: 'DeepL Free',
+        reason: `Document fits within free tier (${(characterCount / deeplFree.monthlyLimit * 100).toFixed(1)}% of limit)`,
+        estimatedChunks: Math.ceil(characterCount / 4000),
+        recommendedChunkSize: 4000,
+        supportsGlossary: false,
+        supportsHtml: true,
+        cost: 0
+      });
+    }
+    
+    if (characterCount <= deeplStarter.monthlyLimit) {
+      recommendations.push({
+        provider: 'deepl',
+        plan: 'starter',
+        model: 'DeepL Pro Starter',
+        reason: `Document fits within starter tier (${(characterCount / deeplStarter.monthlyLimit * 100).toFixed(1)}% of limit)`,
+        estimatedChunks: Math.ceil(characterCount / 5000),
+        recommendedChunkSize: 5000,
+        supportsGlossary: true,
+        supportsHtml: true,
+        cost: 5.99
+      });
+    }
+    
+    // OpenAI recommendations
+    const gpt35 = DEFAULT_PLANS.openai.gpt35turbo;
+    const gpt4o = DEFAULT_PLANS.openai.gpt4o;
+    
+    // Estimate tokens (rough: 1 token ≈ 4 characters)
+    const estimatedTokens = Math.ceil(characterCount / 4);
+    const estimatedCost = (estimatedTokens / 1000) * (gpt35.inputCost + gpt35.outputCost);
+    
+    if (estimatedTokens <= gpt35.contextWindow) {
+      recommendations.push({
+        provider: 'openai',
+        plan: 'gpt-3.5-turbo',
+        model: 'GPT-3.5 Turbo',
+        reason: `Fast and cost-effective (estimated cost: $${estimatedCost.toFixed(2)})`,
+        estimatedChunks: Math.ceil(characterCount / 4000),
+        recommendedChunkSize: 4000,
+        supportsGlossary: false,
+        supportsHtml: false,
+        cost: estimatedCost
+      });
+    }
+    
+    const estimatedCost4o = (estimatedTokens / 1000) * (gpt4o.inputCost + gpt4o.outputCost);
+    recommendations.push({
+      provider: 'openai',
+      plan: 'gpt-4o',
+      model: 'GPT-4o',
+      reason: `Best quality with large context window (estimated cost: $${estimatedCost4o.toFixed(2)})`,
+      estimatedChunks: Math.ceil(characterCount / 8000),
+      recommendedChunkSize: 8000,
+      supportsGlossary: false,
+      supportsHtml: false,
+      cost: estimatedCost4o
+    });
+    
+    // Google Translate (always available)
+    recommendations.push({
+      provider: 'google',
+      plan: 'free',
+      model: 'Google Translate (Free)',
+      reason: 'Free but may be rate-limited',
+      estimatedChunks: Math.ceil(characterCount / 3000),
+      recommendedChunkSize: 3000,
+      supportsGlossary: false,
+      supportsHtml: false,
+      cost: 0,
+      warning: 'May be blocked after heavy usage'
+    });
+    
+    // Sort by cost (free first), then by quality
+    recommendations.sort((a, b) => {
+      if (a.cost === 0 && b.cost > 0) return -1;
+      if (b.cost === 0 && a.cost > 0) return 1;
+      return a.cost - b.cost;
+    });
+    
+    return recommendations;
+  }
+}
+
+export default ApiPlansService;
+
