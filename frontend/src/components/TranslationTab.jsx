@@ -443,6 +443,29 @@ function TranslationTab({ settings }) {
             </div>
           </div>
 
+          {(apiProvider === 'openai' || apiProvider === 'chatgpt') && (
+            <div className="form-group">
+              <label>{t('openaiModel') || 'OpenAI Model'}</label>
+              <select 
+                value={openaiModel} 
+                onChange={(e) => setOpenaiModel(e.target.value)}
+              >
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Faster, Cheaper)</option>
+                <option value="gpt-4">GPT-4 (Better Quality)</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo (Large Context)</option>
+                <option value="gpt-4o">GPT-4o (Best Quality)</option>
+                <option value="gpt-5">GPT-5 (Latest)</option>
+              </select>
+              <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                {documentInfo && recommendations && recommendations.find(r => (r.provider === 'openai' || r.provider === 'chatgpt') && r.plan === openaiModel) ? (
+                  <>✓ Recommended for this document</>
+                ) : (
+                  <>Default: {settings.openai_model || 'gpt-3.5-turbo'}</>
+                )}
+              </p>
+            </div>
+          )}
+
           <div className="form-group">
             <label>{t('outputFormat')}</label>
             <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)}>
