@@ -118,7 +118,7 @@ class ApiUsage {
         characters_used = characters_used + excluded.characters_used,
         requests_count = requests_count + excluded.requests_count
     `);
-    stmt.run(provider, charactersUsed, requestsCount);
+    stmt.run(provider, charactersUsed, requestsCount, date);
   }
 
   static getUsageToday(provider) {
