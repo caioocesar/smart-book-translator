@@ -28,11 +28,35 @@ class TranslationService {
       const useHtml = html && html.trim().length > 0;
       const inputText = useHtml ? html : text;
       
-      // Apply glossary replacements before translation
+      // Log glossary usage
+      if (glossaryTerms && glossaryTerms.length > 0) {
+        console.log(`📚 Using ${glossaryTerms.length} glossary terms for DeepL translation`);
+        Logger.logError('translation', 'Glossary terms being used', null, {
+          glossaryCount: glossaryTerms.length,
+          sourceLang,
+          targetLang,
+          terms: glossaryTerms.slice(0, 5).map(t => t.source_term) // Log first 5 terms
+        });
+      }
+      
+      // Apply glossary replacements using a more robust approach
+      // Use a unique marker that's less likely to be translated
       let preprocessedText = inputText;
-      for (const term of glossaryTerms) {
-        const regex = new RegExp(term.source_term, 'gi');
-        preprocessedText = preprocessedText.replace(regex, `[[${term.source_term}]]`);
+      const glossaryMap = new Map();
+      
+      if (glossaryTerms && glossaryTerms.length > 0) {
+        for (let i = 0; i < glossaryTerms.length; i++) {
+          const term = glossaryTerms[i];
+          // Use a unique placeholder that's unlikely to appear in text
+          const placeholder = `__GLOSSARY_TERM_${i}_${Date.now()}__`;
+          glossaryMap.set(placeholder, term.target_term);
+          
+          // Use word boundaries to avoid partial matches
+          // Escape special regex characters in source_term
+          const escapedTerm = term.source_term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`\\b${escapedTerm}\\b`, 'gi');
+          preprocessedText = preprocessedText.replace(regex, placeholder);
+        }
       }
       
       const params = {
@@ -55,9 +79,12 @@ class TranslationService {
       let translatedText = response.data.translations[0].text;
       
       // Apply glossary replacements after translation
-      for (const term of glossaryTerms) {
-        const regex = new RegExp(`\\[\\[${term.source_term}\\]\\]`, 'gi');
-        translatedText = translatedText.replace(regex, term.target_term);
+      // Restore glossary terms from placeholders
+      if (glossaryMap.size > 0) {
+        for (const [placeholder, targetTerm] of glossaryMap.entries()) {
+          const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+          translatedText = translatedText.replace(regex, targetTerm);
+        }
       }
 
       // Track usage (use text length, not HTML)

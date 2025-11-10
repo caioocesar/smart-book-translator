@@ -487,11 +487,13 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         
         await new Promise(resolve => setTimeout(resolve, delay));
 
+        // Pass null to let translate() method retrieve glossary terms automatically
+        // Glossary terms will be fetched based on job.source_language and job.target_language
         const result = await translationService.translate(
           chunk.source_text,
           job.source_language,
           job.target_language,
-          [],
+          null, // null = auto-retrieve glossary terms from database
           chunk.source_html || null
         );
 
