@@ -12,12 +12,30 @@ const router = express.Router();
 router.get('/plans', async (req, res) => {
   try {
     const forceRefresh = req.query.refresh === 'true';
-    const plans = await ApiPlansService.getApiPlans(forceRefresh);
+    const openaiApiKey = req.query.openaiApiKey || null; // Optional: pass API key to fetch OpenAI models
+    const plans = await ApiPlansService.getApiPlans(forceRefresh, openaiApiKey);
     res.json(plans);
   } catch (error) {
     console.error('Error fetching API plans:', error);
     // Return defaults on error
     res.json(ApiPlansService.loadCachedPlans() || {});
+  }
+});
+
+// Fetch OpenAI models dynamically
+router.post('/fetch-openai-models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    
+    if (!apiKey) {
+      return res.status(400).json({ error: 'OpenAI API key is required' });
+    }
+
+    const models = await ApiPlansService.fetchOpenAIModels(apiKey);
+    res.json({ models });
+  } catch (error) {
+    console.error('Error fetching OpenAI models:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

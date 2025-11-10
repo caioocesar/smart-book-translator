@@ -142,9 +142,33 @@ router.post('/check-models', async (req, res) => {
     const OpenAI = (await import('openai')).default;
     const openai = new OpenAI({ apiKey });
 
-    // Try to get available models
-    const availableModels = [];
-    const modelsToTest = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'];
+    // Try to get available models from API first
+    let availableModels = [];
+    let allModels = [];
+    
+    try {
+      // Fetch models list from OpenAI API
+      const modelsResponse = await axios.get('https://api.openai.com/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+      
+      // Extract GPT models
+      const allAvailableModels = modelsResponse.data.data || [];
+      allModels = allAvailableModels
+        .filter(m => m.id && (m.id.startsWith('gpt-') || m.id.includes('gpt')))
+        .map(m => m.id)
+        .sort();
+      
+      console.log(`📋 Found ${allModels.length} OpenAI models via API`);
+    } catch (err) {
+      console.warn('Failed to fetch models list from API, falling back to testing:', err.message);
+      allModels = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-5'];
+    }
+    
+    // Test which models are actually accessible
+    const modelsToTest = allModels.length > 0 ? allModels : ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-5'];
 
     for (const model of modelsToTest) {
       try {

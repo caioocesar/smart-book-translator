@@ -170,17 +170,27 @@ class ApiPlansService {
   /**
    * Get API plans (cached or fresh)
    */
-  static async getApiPlans(forceRefresh = false) {
+  static async getApiPlans(forceRefresh = false, openaiApiKey = null) {
     if (forceRefresh) {
-      return await this.fetchApiPlans();
+      return await this.fetchApiPlans(openaiApiKey);
     }
     
     const cached = this.loadCachedPlans();
     if (cached) {
+      // If OpenAI API key provided and we have cached plans, try to update OpenAI models
+      if (openaiApiKey) {
+        try {
+          const updatedOpenAIModels = await this.fetchOpenAIModels(openaiApiKey);
+          cached.openai = { ...cached.openai, ...updatedOpenAIModels };
+          this.saveCachedPlans(cached);
+        } catch (error) {
+          console.warn('Failed to update OpenAI models:', error.message);
+        }
+      }
       return cached;
     }
     
-    return await this.fetchApiPlans();
+    return await this.fetchApiPlans(openaiApiKey);
   }
 
   /**
@@ -221,40 +231,82 @@ class ApiPlansService {
       });
     }
     
-    // OpenAI recommendations
-    const gpt35 = DEFAULT_PLANS.openai.gpt35turbo;
-    const gpt4o = DEFAULT_PLANS.openai.gpt4o;
+    // OpenAI recommendations - get current plans (may include dynamically fetched models)
+    const currentPlans = this.loadCachedPlans() || DEFAULT_PLANS;
+    const openaiPlans = currentPlans.openai || DEFAULT_PLANS.openai;
     
     // Estimate tokens (rough: 1 token ≈ 4 characters)
     const estimatedTokens = Math.ceil(characterCount / 4);
-    const estimatedCost = (estimatedTokens / 1000) * (gpt35.inputCost + gpt35.outputCost);
     
-    if (estimatedTokens <= gpt35.contextWindow) {
+    // GPT-5 (if available)
+    if (openaiPlans.gpt5) {
+      const gpt5 = openaiPlans.gpt5;
+      const estimatedCost5 = (estimatedTokens / 1000) * (gpt5.inputCost + gpt5.outputCost);
       recommendations.push({
         provider: 'openai',
-        plan: 'gpt-3.5-turbo',
-        model: 'GPT-3.5 Turbo',
-        reason: `Fast and cost-effective (estimated cost: $${estimatedCost.toFixed(2)})`,
-        estimatedChunks: Math.ceil(characterCount / 4000),
-        recommendedChunkSize: 4000,
+        plan: 'gpt-5',
+        model: 'GPT-5',
+        reason: `Latest model with best quality (estimated cost: $${estimatedCost5.toFixed(2)})`,
+        estimatedChunks: Math.ceil(characterCount / 10000),
+        recommendedChunkSize: 10000,
         supportsGlossary: false,
         supportsHtml: false,
-        cost: estimatedCost
+        cost: estimatedCost5
       });
     }
     
-    const estimatedCost4o = (estimatedTokens / 1000) * (gpt4o.inputCost + gpt4o.outputCost);
-    recommendations.push({
-      provider: 'openai',
-      plan: 'gpt-4o',
-      model: 'GPT-4o',
-      reason: `Best quality with large context window (estimated cost: $${estimatedCost4o.toFixed(2)})`,
-      estimatedChunks: Math.ceil(characterCount / 8000),
-      recommendedChunkSize: 8000,
-      supportsGlossary: false,
-      supportsHtml: false,
-      cost: estimatedCost4o
-    });
+    // GPT-4o
+    if (openaiPlans.gpt4o) {
+      const gpt4o = openaiPlans.gpt4o;
+      const estimatedCost4o = (estimatedTokens / 1000) * (gpt4o.inputCost + gpt4o.outputCost);
+      recommendations.push({
+        provider: 'openai',
+        plan: 'gpt-4o',
+        model: 'GPT-4o',
+        reason: `Best quality with large context window (estimated cost: $${estimatedCost4o.toFixed(2)})`,
+        estimatedChunks: Math.ceil(characterCount / 8000),
+        recommendedChunkSize: 8000,
+        supportsGlossary: false,
+        supportsHtml: false,
+        cost: estimatedCost4o
+      });
+    }
+    
+    // GPT-4 Turbo
+    if (openaiPlans.gpt4turbo) {
+      const gpt4turbo = openaiPlans.gpt4turbo;
+      const estimatedCost4t = (estimatedTokens / 1000) * (gpt4turbo.inputCost + gpt4turbo.outputCost);
+      recommendations.push({
+        provider: 'openai',
+        plan: 'gpt-4-turbo',
+        model: 'GPT-4 Turbo',
+        reason: `High quality with large context (estimated cost: $${estimatedCost4t.toFixed(2)})`,
+        estimatedChunks: Math.ceil(characterCount / 8000),
+        recommendedChunkSize: 8000,
+        supportsGlossary: false,
+        supportsHtml: false,
+        cost: estimatedCost4t
+      });
+    }
+    
+    // GPT-3.5 Turbo (always available as fallback)
+    if (openaiPlans.gpt35turbo) {
+      const gpt35 = openaiPlans.gpt35turbo;
+      const estimatedCost = (estimatedTokens / 1000) * (gpt35.inputCost + gpt35.outputCost);
+      if (estimatedTokens <= gpt35.contextWindow) {
+        recommendations.push({
+          provider: 'openai',
+          plan: 'gpt-3.5-turbo',
+          model: 'GPT-3.5 Turbo',
+          reason: `Fast and cost-effective (estimated cost: $${estimatedCost.toFixed(2)})`,
+          estimatedChunks: Math.ceil(characterCount / 4000),
+          recommendedChunkSize: 4000,
+          supportsGlossary: false,
+          supportsHtml: false,
+          cost: estimatedCost
+        });
+      }
+    }
     
     // Google Translate (always available)
     recommendations.push({
