@@ -49,7 +49,21 @@ function TranslationTab({ settings }) {
     // Setup WebSocket connection
     // In development, connect to backend directly for WebSocket
     const wsURL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const newSocket = io(wsURL);
+    const newSocket = io(wsURL, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5
+    });
+    
+    newSocket.on('connect', () => {
+      console.log('✅ WebSocket connected');
+    });
+    
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ WebSocket connection error:', error);
+    });
+    
     setSocket(newSocket);
 
     return () => newSocket.close();
@@ -470,7 +484,7 @@ function TranslationTab({ settings }) {
             
             <div className="all-limits-grid">
               {Object.entries(allApiLimits).map(([provider, limits]) => {
-                if (limits.error) return null;
+                if (!limits || limits.error) return null;
                 const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
                 const apiLimitsData = limits.apiLimits || {};
                 
