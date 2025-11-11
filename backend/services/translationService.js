@@ -1,6 +1,8 @@
 import axios from 'axios';
 import OpenAI from 'openai';
 import { translate } from '@vitalets/google-translate-api';
+import http from 'http';
+import https from 'https';
 import { ApiUsage } from '../models/TranslationJob.js';
 import Glossary from '../models/Glossary.js';
 import Logger from '../utils/logger.js';
@@ -20,13 +22,17 @@ class TranslationService {
     let usePaidEndpoint = false; // Declare outside try block for catch block access
     try {
       // Determine API endpoint based on API key (free vs paid)
-      // Free API keys typically start with specific patterns, paid keys use api.deepl.com
-      // Try free endpoint first, fallback to paid if 403 error
-      let url = 'https://api-free.deepl.com/v2/translate';
+      // Paid API keys are typically UUIDs (with dashes), free keys are shorter alphanumeric
+      // If key looks like a UUID (has dashes), try paid endpoint first
+      const isPaidKey = this.apiKey && this.apiKey.includes('-') && this.apiKey.length > 30;
+      let url = isPaidKey 
+        ? 'https://api.deepl.com/v2/translate'
+        : 'https://api-free.deepl.com/v2/translate';
       
-      // Check if API key looks like a paid key (usually longer, different format)
-      // Paid keys often don't have the same prefix patterns as free keys
-      // We'll try free first, and if we get 403, retry with paid endpoint
+      if (isPaidKey) {
+        usePaidEndpoint = true;
+        console.log('🔑 Detected paid API key, using paid endpoint');
+      }
       
       // Normalize language codes for DeepL API
       // DeepL uses: EN, PT (Brazilian), PT-PT (European), ES, FR, DE, IT, etc.
@@ -129,9 +135,40 @@ class TranslationService {
         params.ignore_tags = 'code,pre,script,style'; // Don't translate code blocks and scripts
       }
       
+      // Create HTTP agents with keep-alive for better connection reuse
+      const isHttps = url.startsWith('https://');
+      const agent = isHttps 
+        ? new https.Agent({
+            keepAlive: true,
+            keepAliveMsecs: 1000,
+            maxSockets: 50,
+            maxFreeSockets: 10,
+            timeout: 60000
+          })
+        : new http.Agent({
+            keepAlive: true,
+            keepAliveMsecs: 1000,
+            maxSockets: 50,
+            maxFreeSockets: 10,
+            timeout: 60000
+          });
+      
       let response;
       try {
-        response = await axios.post(url, null, { params });
+        // Configure axios with better timeout and connection settings
+        response = await axios.post(url, null, { 
+          params,
+          timeout: 60000, // 60 second timeout (increased from default)
+          headers: {
+            'User-Agent': 'SmartBookTranslator/1.0',
+            'Connection': 'keep-alive'
+          },
+          maxRedirects: 5,
+          validateStatus: function (status) {
+            return status < 500; // Don't throw for 4xx errors, only 5xx
+          },
+          [isHttps ? 'httpsAgent' : 'httpAgent']: agent
+        });
       } catch (firstError) {
         // If we get 403 on free endpoint, try paid endpoint
         if (firstError.response?.status === 403 && !usePaidEndpoint) {
@@ -139,7 +176,24 @@ class TranslationService {
           url = 'https://api.deepl.com/v2/translate';
           usePaidEndpoint = true;
           try {
-            response = await axios.post(url, null, { params });
+            // Use same agent configuration for paid endpoint
+            const paidAgent = new https.Agent({
+              keepAlive: true,
+              keepAliveMsecs: 1000,
+              maxSockets: 50,
+              maxFreeSockets: 10,
+              timeout: 60000
+            });
+            
+            response = await axios.post(url, null, { 
+              params,
+              timeout: 60000,
+              headers: {
+                'User-Agent': 'SmartBookTranslator/1.0',
+                'Connection': 'keep-alive'
+              },
+              httpsAgent: paidAgent
+            });
             console.log('✅ Paid endpoint successful');
           } catch (paidError) {
             // If paid endpoint also fails, throw the original error with better message
