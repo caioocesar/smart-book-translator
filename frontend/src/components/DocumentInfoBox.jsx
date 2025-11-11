@@ -2,10 +2,31 @@ import React from 'react';
 import { t } from '../utils/i18n.js';
 import './DocumentInfoBox.css';
 
-function DocumentInfoBox({ documentInfo, recommendations, onSelectRecommendation }) {
+function DocumentInfoBox({ documentInfo, recommendations, onSelectRecommendation, selectedProvider, selectedModel }) {
+  const [selectedIndex, setSelectedIndex] = React.useState(null);
+  
   if (!documentInfo) {
     return null;
   }
+  
+  const handleCardClick = (rec, index) => {
+    setSelectedIndex(index);
+    if (onSelectRecommendation) {
+      onSelectRecommendation(rec);
+    }
+  };
+  
+  // Check if a recommendation matches the current selection
+  const isSelected = (rec, index) => {
+    if (selectedIndex === index) return true;
+    if (selectedProvider && rec.provider === selectedProvider) {
+      if (rec.provider === 'openai' || rec.provider === 'chatgpt') {
+        return selectedModel && rec.plan && rec.plan.includes(selectedModel);
+      }
+      return true;
+    }
+    return false;
+  };
 
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
@@ -63,8 +84,8 @@ function DocumentInfoBox({ documentInfo, recommendations, onSelectRecommendation
             {recommendations.slice(0, 5).map((rec, index) => (
               <div 
                 key={index} 
-                className={`recommendation-card ${index === 0 ? 'recommended' : ''}`}
-                onClick={() => onSelectRecommendation && onSelectRecommendation(rec)}
+                className={`recommendation-card ${index === 0 ? 'recommended' : ''} ${isSelected(rec, index) ? 'selected' : ''}`}
+                onClick={() => handleCardClick(rec, index)}
               >
                 <div className="recommendation-header">
                   <span className="recommendation-model">{rec.model}</span>

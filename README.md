@@ -2,6 +2,21 @@
 
 A powerful desktop application for translating documents (EPUB, DOCX, PDF) using AI translation services like DeepL and OpenAI. Features include intelligent document splitting, glossary management, progress tracking, and automatic retry on failures.
 
+## 🎓 About This Project
+
+**This project is primarily for educational purposes and study.**
+
+This application was developed as a learning project to explore:
+- Document parsing and processing (EPUB, DOCX, PDF)
+- AI translation API integration (DeepL, OpenAI, Google Translate)
+- Real-time progress tracking with WebSockets
+- Database management with SQLite
+- Frontend/Backend architecture with React and Node.js
+
+**AI-Assisted Development**: This project was developed with the assistance of AI tools (including Cursor AI and ChatGPT) to help with code generation, debugging, and implementation. The development process involved collaboration between human developers and AI assistants to create a functional translation application.
+
+**Purpose**: This tool is intended for personal use, learning, and experimentation. It demonstrates how modern web technologies can be combined to create practical desktop applications.
+
 ## ⚠️ Important Copyright Notice
 
 **THIS SOFTWARE IS FOR PERSONAL USE ONLY**

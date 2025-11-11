@@ -210,6 +210,96 @@ router.post('/translate/:jobId', async (req, res) => {
   }
 });
 
+// Pause translation
+router.post('/pause/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    if (job.status !== 'translating') {
+      return res.status(400).json({ error: 'Job is not currently translating' });
+    }
+    
+    TranslationJob.updateStatus(jobId, 'paused');
+    io.to(`job-${jobId}`).emit('job-paused', { jobId });
+    
+    res.json({ message: 'Translation paused', jobId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Resume/Unpause translation
+router.post('/resume/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { apiKey, apiOptions, apiProvider } = req.body;
+    
+    const job = TranslationJob.get(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    if (job.status !== 'paused') {
+      return res.status(400).json({ error: 'Job is not paused' });
+    }
+    
+    // Resume from pending/failed chunks
+    TranslationJob.updateStatus(jobId, 'translating');
+    io.to(`job-${jobId}`).emit('job-resumed', { jobId });
+    
+    // Start translation in background (will resume from pending chunks)
+    translateJob(jobId, apiKey, apiOptions, apiProvider || job.api_provider).catch(error => {
+      console.error('Translation error on resume:', error);
+      TranslationJob.updateStatus(jobId, 'failed', error.message);
+    });
+    
+    res.json({ message: 'Translation resumed', jobId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update translation settings (when paused)
+router.put('/settings/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { chunkSize, apiProvider, apiKey, apiOptions } = req.body;
+    
+    const job = TranslationJob.get(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    if (job.status !== 'paused') {
+      return res.status(400).json({ error: 'Can only update settings when job is paused' });
+    }
+    
+    // Update job settings
+    // Note: chunkSize changes would require re-chunking, which is complex
+    // For now, we'll update API provider and options
+    if (apiProvider) {
+      const stmt = db.prepare('UPDATE translation_jobs SET api_provider = ? WHERE id = ?');
+      stmt.run(apiProvider, jobId);
+    }
+    
+    // Store updated API key/options in settings or pass them on resume
+    // For now, we'll return success and the frontend will pass them on resume
+    
+    res.json({ 
+      message: 'Settings updated', 
+      jobId,
+      note: 'New settings will be applied when translation is resumed'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get job status
 router.get('/status/:jobId', async (req, res) => {
   try {
@@ -483,12 +573,26 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
   }
   
   for (let i = 0; i < chunks.length; i++) {
+    // Check if job is paused before processing each chunk
+    const currentJob = TranslationJob.get(jobId);
+    if (currentJob && currentJob.status === 'paused') {
+      console.log(`⏸️  Translation job ${jobId} is paused. Stopping translation loop.`);
+      TranslationJob.updateStatus(jobId, 'paused');
+      return; // Exit the translation loop
+    }
+    
     const chunk = chunks[i];
     const chunksRemaining = chunks.length - i - 1;
     let chunkCompleted = false;
     let attempts = 0;
     
     while (!chunkCompleted && attempts < maxRetries) {
+      // Check again if paused during retry loop
+      const jobCheck = TranslationJob.get(jobId);
+      if (jobCheck && jobCheck.status === 'paused') {
+        console.log(`⏸️  Translation job ${jobId} paused during chunk ${chunk.chunk_index}. Stopping.`);
+        return;
+      }
       try {
         // Calculate smart delay based on multiple factors
         const delay = rateLimiter.calculateDelay(chunksRemaining, totalChunks);

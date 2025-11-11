@@ -423,6 +423,8 @@ function TranslationTab({ settings }) {
             documentInfo={documentInfo}
             recommendations={recommendations}
             onSelectRecommendation={handleSelectRecommendation}
+            selectedProvider={apiProvider}
+            selectedModel={openaiModel}
           />
         )}
 

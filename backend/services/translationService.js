@@ -23,6 +23,37 @@ class TranslationService {
       // Users with paid plans should use api.deepl.com
       const url = 'https://api-free.deepl.com/v2/translate';
       
+      // Normalize language codes for DeepL API
+      // DeepL uses: EN, PT (Brazilian), PT-PT (European), ES, FR, DE, IT, etc.
+      // Map common language codes to DeepL format
+      const languageMap = {
+        'en': 'EN',
+        'pt': 'PT', // Brazilian Portuguese (default)
+        'pt-br': 'PT',
+        'pt-pt': 'PT-PT',
+        'es': 'ES',
+        'fr': 'FR',
+        'de': 'DE',
+        'it': 'IT',
+        'ru': 'RU',
+        'ja': 'JA',
+        'zh': 'ZH',
+        'ar': 'AR'
+      };
+      
+      const normalizedSourceLang = languageMap[sourceLang.toLowerCase()] || sourceLang.toUpperCase();
+      const normalizedTargetLang = languageMap[targetLang.toLowerCase()] || targetLang.toUpperCase();
+      
+      // Validate that source and target are different
+      if (normalizedSourceLang === normalizedTargetLang) {
+        throw new Error(`Source and target languages cannot be the same: ${normalizedSourceLang}`);
+      }
+      
+      // Log translation parameters for debugging
+      console.log(`🌐 DeepL Translation: ${normalizedSourceLang} → ${normalizedTargetLang}`);
+      console.log(`   Original codes: ${sourceLang} → ${targetLang}`);
+      console.log(`   Text length: ${text.length} chars`);
+      
       // Use HTML if available (preserves formatting)
       // According to DeepL docs: https://developers.deepl.com/docs/xml-and-html-handling/html
       const useHtml = html && html.trim().length > 0;
@@ -33,8 +64,8 @@ class TranslationService {
         console.log(`📚 Using ${glossaryTerms.length} glossary terms for DeepL translation`);
         Logger.logError('translation', 'Glossary terms being used', null, {
           glossaryCount: glossaryTerms.length,
-          sourceLang,
-          targetLang,
+          sourceLang: normalizedSourceLang,
+          targetLang: normalizedTargetLang,
           terms: glossaryTerms.slice(0, 5).map(t => t.source_term) // Log first 5 terms
         });
       }
@@ -62,8 +93,8 @@ class TranslationService {
       const params = {
         auth_key: this.apiKey,
         text: preprocessedText,
-        source_lang: sourceLang.toUpperCase(),
-        target_lang: targetLang.toUpperCase()
+        source_lang: normalizedSourceLang, // Use normalized language code
+        target_lang: normalizedTargetLang  // Use normalized language code
       };
       
       // If using HTML, configure DeepL to preserve formatting
@@ -77,6 +108,21 @@ class TranslationService {
       const response = await axios.post(url, null, { params });
 
       let translatedText = response.data.translations[0].text;
+      const detectedLang = response.data.translations[0].detected_source_language;
+      
+      // Log detected language for debugging
+      console.log(`✅ DeepL Response: Detected source language: ${detectedLang}`);
+      console.log(`   Requested: ${normalizedSourceLang} → ${normalizedTargetLang}`);
+      
+      // Warn if detected language doesn't match requested source
+      if (detectedLang && detectedLang.toUpperCase() !== normalizedSourceLang) {
+        console.warn(`⚠️  Language mismatch: Requested ${normalizedSourceLang}, but DeepL detected ${detectedLang}`);
+        Logger.logError('translation', 'Language detection mismatch', null, {
+          requested: normalizedSourceLang,
+          detected: detectedLang,
+          target: normalizedTargetLang
+        });
+      }
       
       // Apply glossary replacements after translation
       // Restore glossary terms from placeholders
@@ -93,7 +139,7 @@ class TranslationService {
       return {
         translatedText: useHtml ? null : translatedText, // Return null if HTML was used
         translatedHtml: useHtml ? translatedText : null, // Return HTML if HTML was used
-        detectedSourceLang: response.data.translations[0].detected_source_language,
+        detectedSourceLang: detectedLang,
         charactersUsed: text.length
       };
     } catch (error) {

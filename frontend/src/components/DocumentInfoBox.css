@@ -83,6 +83,18 @@
   background: rgba(255, 215, 0, 0.2);
 }
 
+.recommendation-card.selected {
+  border-color: #4CAF50;
+  background: rgba(76, 175, 80, 0.25);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+}
+
+.recommendation-card.selected.recommended {
+  border-color: #4CAF50;
+  background: rgba(76, 175, 80, 0.3);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.4);
+}
+
 .recommendation-header {
   display: flex;
   justify-content: space-between;

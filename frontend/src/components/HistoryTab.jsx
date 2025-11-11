@@ -24,6 +24,14 @@ function HistoryTab({ settings, onTranslationReady }) {
   const [outputPaths, setOutputPaths] = useState({});
   const [storageInfo, setStorageInfo] = useState(null);
   const [showClearAllModal, setShowClearAllModal] = useState(false);
+  const [showPauseSettingsModal, setShowPauseSettingsModal] = useState(false);
+  const [pauseSettings, setPauseSettings] = useState({
+    jobId: null,
+    apiProvider: '',
+    apiKey: '',
+    openaiModel: '',
+    chunkSize: 3000
+  });
 
   useEffect(() => {
     loadJobs();
@@ -169,6 +177,60 @@ function HistoryTab({ settings, onTranslationReady }) {
 
   const handleDownload = (jobId) => {
     window.open(`${API_URL}/api/translation/download/${jobId}`, '_blank');
+  };
+
+  const handlePause = async (jobId) => {
+    try {
+      await axios.post(`${API_URL}/api/translation/pause/${jobId}`);
+      loadJobs();
+    } catch (err) {
+      setError(`Failed to pause: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
+  const handleResume = async (jobId, apiKey, apiOptions, apiProvider) => {
+    try {
+      await axios.post(`${API_URL}/api/translation/resume/${jobId}`, {
+        apiKey,
+        apiOptions,
+        apiProvider
+      });
+      loadJobs();
+    } catch (err) {
+      setError(`Failed to resume: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
+  const openPauseSettingsModal = (job) => {
+    setPauseSettings({
+      jobId: job.id,
+      apiProvider: job.api_provider,
+      apiKey: settings[`${job.api_provider}_api_key`] || '',
+      openaiModel: settings.openai_model || 'gpt-3.5-turbo',
+      chunkSize: settings.chunkSize || 3000
+    });
+    setShowPauseSettingsModal(true);
+  };
+
+  const handleUpdatePauseSettings = async () => {
+    try {
+      const apiOptions = {};
+      if (pauseSettings.apiProvider === 'openai' || pauseSettings.apiProvider === 'chatgpt') {
+        apiOptions.model = pauseSettings.openaiModel;
+      }
+      
+      await axios.put(`${API_URL}/api/translation/settings/${pauseSettings.jobId}`, {
+        apiProvider: pauseSettings.apiProvider,
+        apiKey: pauseSettings.apiKey,
+        apiOptions,
+        chunkSize: pauseSettings.chunkSize
+      });
+      
+      setShowPauseSettingsModal(false);
+      loadJobs();
+    } catch (err) {
+      setError(`Failed to update settings: ${err.response?.data?.error || err.message}`);
+    }
   };
 
   const handleDelete = async (jobId) => {
@@ -481,9 +543,41 @@ function HistoryTab({ settings, onTranslationReady }) {
                   )}
 
                   {job.status === 'translating' && (
-                    <button className="btn-small" disabled>
-                      ⏳ {t('inProgress')}
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => handlePause(job.id)}
+                        className="btn-small btn-warning"
+                        title={t('pauseTranslation') || 'Pause Translation'}
+                      >
+                        ⏸️ {t('pause') || 'Pause'}
+                      </button>
+                    </>
+                  )}
+                  
+                  {job.status === 'paused' && (
+                    <>
+                      <button 
+                        onClick={() => openPauseSettingsModal(job)}
+                        className="btn-small btn-info"
+                        title={t('changeSettings') || 'Change Settings'}
+                      >
+                        ⚙️ {t('settings') || 'Settings'}
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const apiKey = settings[`${job.api_provider}_api_key`] || '';
+                          const apiOptions = {};
+                          if (job.api_provider === 'openai' || job.api_provider === 'chatgpt') {
+                            apiOptions.model = settings.openai_model || 'gpt-3.5-turbo';
+                          }
+                          handleResume(job.id, apiKey, apiOptions, job.api_provider);
+                        }}
+                        className="btn-small btn-success"
+                        title={t('resumeTranslation') || 'Resume Translation'}
+                      >
+                        ▶️ {t('resume') || 'Resume'}
+                      </button>
+                    </>
                   )}
 
                   <button 
@@ -638,6 +732,82 @@ function HistoryTab({ settings, onTranslationReady }) {
                 className="btn-secondary"
               >
                 {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pause Settings Modal */}
+      {showPauseSettingsModal && (
+        <div className="modal-overlay" onClick={() => setShowPauseSettingsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>⚙️ {t('changeTranslationSettings') || 'Change Translation Settings'}</h3>
+            <p style={{ marginBottom: '20px', color: '#666' }}>
+              {t('pauseSettingsNote') || 'Update translation settings. Changes will be applied when you resume the translation.'}
+            </p>
+            
+            <div className="form-group">
+              <label>{t('apiProvider') || 'API Provider'}</label>
+              <select 
+                value={pauseSettings.apiProvider}
+                onChange={(e) => setPauseSettings({...pauseSettings, apiProvider: e.target.value, apiKey: ''})}
+              >
+                <option value="google">Google Translate (Free)</option>
+                <option value="deepl">DeepL</option>
+                <option value="openai">OpenAI</option>
+                <option value="chatgpt">ChatGPT</option>
+              </select>
+            </div>
+
+            {pauseSettings.apiProvider !== 'google' && (
+              <div className="form-group">
+                <label>{t('apiKey') || 'API Key'}</label>
+                <input
+                  type="password"
+                  value={pauseSettings.apiKey}
+                  onChange={(e) => setPauseSettings({...pauseSettings, apiKey: e.target.value})}
+                  placeholder={t('enterApiKey') || 'Enter API key'}
+                />
+              </div>
+            )}
+
+            {(pauseSettings.apiProvider === 'openai' || pauseSettings.apiProvider === 'chatgpt') && (
+              <div className="form-group">
+                <label>{t('openaiModel') || 'OpenAI Model'}</label>
+                <select
+                  value={pauseSettings.openaiModel}
+                  onChange={(e) => setPauseSettings({...pauseSettings, openaiModel: e.target.value})}
+                >
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                  <option value="gpt-4">GPT-4</option>
+                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                  <option value="gpt-4o">GPT-4o</option>
+                </select>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>{t('chunkSize') || 'Chunk Size'} ({t('characters') || 'characters'})</label>
+              <input
+                type="number"
+                value={pauseSettings.chunkSize}
+                onChange={(e) => setPauseSettings({...pauseSettings, chunkSize: parseInt(e.target.value) || 3000})}
+                min="1000"
+                max="10000"
+                step="500"
+              />
+              <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
+                {t('chunkSizeNote') || 'Note: Changing chunk size will not affect already processed chunks'}
+              </small>
+            </div>
+
+            <div className="modal-actions">
+              <button onClick={handleUpdatePauseSettings} className="btn-primary">
+                💾 {t('saveSettings') || 'Save Settings'}
+              </button>
+              <button onClick={() => setShowPauseSettingsModal(false)} className="btn-secondary">
+                {t('cancel') || 'Cancel'}
               </button>
             </div>
           </div>
