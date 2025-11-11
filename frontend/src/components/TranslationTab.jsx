@@ -30,6 +30,10 @@ function TranslationTab({ settings }) {
   const [analyzingDocument, setAnalyzingDocument] = useState(false);
   const [chunkSize, setChunkSize] = useState(settings.chunkSize || 3000);
   const [openaiModel, setOpenaiModel] = useState(settings.openai_model || 'gpt-3.5-turbo');
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [availableGlossaries, setAvailableGlossaries] = useState([]);
+  const [selectedGlossaryIds, setSelectedGlossaryIds] = useState([]);
+  const [useAllGlossaries, setUseAllGlossaries] = useState(true);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -50,7 +54,27 @@ function TranslationTab({ settings }) {
       setApiKey(settings[`${apiProvider}_api_key`]);
     }
     loadJobs();
-  }, [apiProvider, settings]);
+    loadGlossaries();
+  }, [apiProvider, settings, sourceLanguage, targetLanguage]);
+
+  const loadGlossaries = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/glossary`, {
+        params: {
+          sourceLanguage,
+          targetLanguage
+        }
+      });
+      setAvailableGlossaries(response.data || []);
+      // If using all glossaries, select all by default
+      if (useAllGlossaries) {
+        setSelectedGlossaryIds(response.data.map(g => g.id));
+      }
+    } catch (err) {
+      console.error('Error loading glossaries:', err);
+      setAvailableGlossaries([]);
+    }
+  };
 
   useEffect(() => {
     // Setup WebSocket connection
@@ -302,7 +326,8 @@ function TranslationTab({ settings }) {
       
       await axios.post(`${API_URL}/api/translation/translate/${jobId}`, {
         apiKey,
-        apiOptions
+        apiOptions,
+        glossaryIds: useAllGlossaries ? null : selectedGlossaryIds // null = use all, array = use selected
       });
 
       // Start polling for progress
@@ -382,6 +407,20 @@ function TranslationTab({ settings }) {
 
   return (
     <div className="translation-tab">
+      {/* Help Icon */}
+      <button 
+        className="help-icon-button"
+        onClick={() => setShowHelpModal(true)}
+        title={t('help') || 'Help & Information'}
+        aria-label={t('help') || 'Help & Information'}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+          <path d="M8 11V8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle cx="8" cy="5" r="0.75" fill="currentColor"/>
+        </svg>
+      </button>
+      
       <div className="upload-section">
         <h2>{t('uploadDocument')}</h2>
         
@@ -518,6 +557,79 @@ function TranslationTab({ settings }) {
             </p>
           </div>
 
+          {/* Glossary Selection */}
+          {availableGlossaries.length > 0 && (
+            <div className="form-group">
+              <label>
+                📚 {t('glossary') || 'Glossary'} ({availableGlossaries.length} {t('entries') || 'entries'})
+              </label>
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={useAllGlossaries}
+                    onChange={(e) => {
+                      setUseAllGlossaries(e.target.checked);
+                      if (e.target.checked) {
+                        setSelectedGlossaryIds(availableGlossaries.map(g => g.id));
+                      }
+                    }}
+                  />
+                  <span>{t('useAllGlossaries') || 'Use all glossary entries'}</span>
+                </label>
+              </div>
+              {!useAllGlossaries && (
+                <div style={{ 
+                  maxHeight: '200px', 
+                  overflowY: 'auto', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px', 
+                  padding: '8px',
+                  backgroundColor: '#f9f9f9'
+                }}>
+                  {availableGlossaries.map(glossary => (
+                    <label 
+                      key={glossary.id} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px', 
+                        padding: '4px 0',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedGlossaryIds.includes(glossary.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedGlossaryIds([...selectedGlossaryIds, glossary.id]);
+                          } else {
+                            setSelectedGlossaryIds(selectedGlossaryIds.filter(id => id !== glossary.id));
+                          }
+                        }}
+                      />
+                      <span style={{ fontSize: '0.9em' }}>
+                        <strong>{glossary.source_term}</strong> → {glossary.target_term}
+                        {glossary.category && (
+                          <span style={{ color: '#666', marginLeft: '8px' }}>
+                            ({glossary.category})
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                {useAllGlossaries 
+                  ? `✓ All ${availableGlossaries.length} glossary entries will be used`
+                  : `${selectedGlossaryIds.length} of ${availableGlossaries.length} entries selected`
+                }
+              </p>
+            </div>
+          )}
+
           <div className="form-group full-width">
             <label>{t('apiKey')} 🔐 {apiProvider === 'google' && <span className="free-badge">{t('noApiKey')}</span>}</label>
             <div className="input-with-test">
@@ -605,82 +717,92 @@ function TranslationTab({ settings }) {
           </div>
         )}
 
-        {/* All API Limits Section */}
-        {Object.keys(allApiLimits).length > 0 && (
-          <div className="api-limits-section">
-            <div className="limits-section-header">
-              <h4>📊 API Limits & Usage</h4>
-              <button 
-                onClick={checkAllApiLimits} 
-                className="btn-small"
-                disabled={refreshingAllLimits}
-                title="Refresh all API limits"
-              >
-                {refreshingAllLimits ? '⏳ Refreshing...' : '🔄 Refresh All'}
-              </button>
-            </div>
-            
-            <div className="all-limits-grid">
-              {Object.entries(allApiLimits).map(([provider, limits]) => {
-                // Skip invalid provider names
-                const validProviders = ['google', 'deepl', 'openai', 'chatgpt'];
-                const normalizedProvider = provider.toLowerCase();
-                if (!validProviders.includes(normalizedProvider) && normalizedProvider !== 'google-translate') {
-                  return null;
-                }
-                
-                if (!limits || limits.error) return null;
-                const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
-                const apiLimitsData = limits.apiLimits || {};
-                
-                // Skip if no data at all and no meaningful limits info
-                if (!usage.characters_used && !usage.requests_count && 
-                    !apiLimitsData.charactersLimit && !apiLimitsData.requestsPerMinute &&
-                    !apiLimitsData.note && !apiLimitsData.warning) {
-                  return null;
-                }
-                
-                // Use proper provider name for display
-                let displayName = provider.toLowerCase();
-                if (displayName === 'google-translate') displayName = 'google';
-                if (displayName === 'chatgpt') displayName = 'openai';
-                
-                return (
-                  <div key={provider} className="api-limit-card">
-                    <h5>{displayName.toUpperCase()}</h5>
-                    <div className="limit-details">
-                      <p><strong>Characters Used Today:</strong> {usage.characters_used.toLocaleString()}</p>
-                      <p><strong>Requests Today:</strong> {usage.requests_count}</p>
-                      
-                      {apiLimitsData.charactersLimit && (
-                        <p>
-                          <strong>Monthly Limit:</strong> {apiLimitsData.charactersUsed?.toLocaleString() || 0} / {apiLimitsData.charactersLimit.toLocaleString()} 
-                          {apiLimitsData.percentageUsed && ` (${apiLimitsData.percentageUsed}%)`}
-                        </p>
-                      )}
-                      
-                      {apiLimitsData.requestsPerMinute && (
-                        <p><strong>Requests/Min:</strong> {apiLimitsData.requestsPerMinute}</p>
-                      )}
-                      
-                      {apiLimitsData.note && (
-                        <p className="limit-note">{apiLimitsData.note}</p>
-                      )}
-                      
-                      {apiLimitsData.warning && (
-                        <p className="limit-warning">⚠️ {apiLimitsData.warning}</p>
-                      )}
-                      
-                      {limits.isNearLimit && (
-                        <p className="warning">⚠️ Approaching limit!</p>
-                      )}
+        {/* All API Limits Section - Only show if there's actual content */}
+        {(() => {
+          // Filter and count valid API limit cards
+          const validCards = Object.entries(allApiLimits)
+            .filter(([provider, limits]) => {
+              // Skip invalid provider names
+              const validProviders = ['google', 'deepl', 'openai', 'chatgpt'];
+              const normalizedProvider = provider.toLowerCase();
+              if (!validProviders.includes(normalizedProvider) && normalizedProvider !== 'google-translate') {
+                return false;
+              }
+              
+              if (!limits || limits.error) return false;
+              const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
+              const apiLimitsData = limits.apiLimits || {};
+              
+              // Only include if there's meaningful data
+              return !!(usage.characters_used || usage.requests_count || 
+                       apiLimitsData.charactersLimit || apiLimitsData.requestsPerMinute ||
+                       apiLimitsData.note || apiLimitsData.warning);
+            });
+          
+          // Only render section if there are valid cards
+          if (validCards.length === 0) return null;
+          
+          return (
+            <div className="api-limits-section">
+              <div className="limits-section-header">
+                <h4>📊 API Limits & Usage</h4>
+                <button 
+                  onClick={checkAllApiLimits} 
+                  className="btn-small"
+                  disabled={refreshingAllLimits}
+                  title="Refresh all API limits"
+                >
+                  {refreshingAllLimits ? '⏳ Refreshing...' : '🔄 Refresh All'}
+                </button>
+              </div>
+              
+              <div className="all-limits-grid">
+                {validCards.map(([provider, limits]) => {
+                  const usage = limits.localUsageToday || { characters_used: 0, requests_count: 0 };
+                  const apiLimitsData = limits.apiLimits || {};
+                  
+                  // Use proper provider name for display
+                  let displayName = provider.toLowerCase();
+                  if (displayName === 'google-translate') displayName = 'google';
+                  if (displayName === 'chatgpt') displayName = 'openai';
+                  
+                  return (
+                    <div key={provider} className="api-limit-card">
+                      <h5>{displayName.toUpperCase()}</h5>
+                      <div className="limit-details">
+                        <p><strong>Characters Used Today:</strong> {usage.characters_used.toLocaleString()}</p>
+                        <p><strong>Requests Today:</strong> {usage.requests_count}</p>
+                        
+                        {apiLimitsData.charactersLimit && (
+                          <p>
+                            <strong>Monthly Limit:</strong> {apiLimitsData.charactersUsed?.toLocaleString() || 0} / {apiLimitsData.charactersLimit.toLocaleString()} 
+                            {apiLimitsData.percentageUsed && ` (${apiLimitsData.percentageUsed}%)`}
+                          </p>
+                        )}
+                        
+                        {apiLimitsData.requestsPerMinute && (
+                          <p><strong>Requests/Min:</strong> {apiLimitsData.requestsPerMinute}</p>
+                        )}
+                        
+                        {apiLimitsData.note && (
+                          <p className="limit-note">{apiLimitsData.note}</p>
+                        )}
+                        
+                        {apiLimitsData.warning && (
+                          <p className="limit-warning">⚠️ {apiLimitsData.warning}</p>
+                        )}
+                        
+                        {limits.isNearLimit && (
+                          <p className="warning">⚠️ Approaching limit!</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {progress && (
           <div className="progress-section">
@@ -781,6 +903,115 @@ function TranslationTab({ settings }) {
             <button onClick={() => setShowApiHelp(false)} className="btn-primary">
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Help & Information Modal */}
+      {showHelpModal && (
+        <div className="modal-overlay" onClick={() => setShowHelpModal(false)}>
+          <div className="modal-content help-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2>📚 {t('help') || 'Help & Information'}</h2>
+            
+            <div className="help-content">
+              <section>
+                <h3>🔐 Privacy & Local Storage</h3>
+                <p><strong>Your data stays on your computer:</strong></p>
+                <ul>
+                  <li>✅ <strong>100% Local Storage:</strong> All translations, settings, and API keys are stored in an SQLite database on your device</li>
+                  <li>✅ <strong>No Cloud Sync:</strong> Your documents never leave your computer (except when sent to translation APIs you configure)</li>
+                  <li>✅ <strong>No Telemetry:</strong> We don't track usage, collect analytics, or send any data to external servers</li>
+                  <li>✅ <strong>Encrypted Keys:</strong> API keys are encrypted with AES-256 before storage</li>
+                  <li>✅ <strong>Full Control:</strong> You can delete all data by removing the database file at any time</li>
+                </ul>
+                <p><strong>Data Location:</strong></p>
+                <ul>
+                  <li>Database: <code>backend/database/translations.db</code></li>
+                  <li>Uploads: <code>backend/uploads/</code></li>
+                  <li>Outputs: <code>backend/outputs/</code></li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>⚠️ Personal Use Only</h3>
+                <p><strong>THIS SOFTWARE IS FOR PERSONAL USE ONLY</strong></p>
+                <ul>
+                  <li>✅ <strong>Allowed:</strong> Translating documents you own or have permission to translate for personal use</li>
+                  <li>❌ <strong>Not Allowed:</strong>
+                    <ul>
+                      <li>Commercial use or redistribution</li>
+                      <li>Translating copyrighted material without permission</li>
+                      <li>Violating intellectual property rights</li>
+                      <li>Circumventing DRM or access controls</li>
+                    </ul>
+                  </li>
+                </ul>
+                <p><strong>You are responsible for complying with all applicable laws and respecting copyright holders' rights.</strong></p>
+              </section>
+
+              <section>
+                <h3>📋 Field Explanations</h3>
+                
+                <h4>Source Language & Target Language</h4>
+                <p>Select the language of your document and the language you want it translated to. The app supports major world languages including English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Chinese, and Arabic.</p>
+
+                <h4>API Provider</h4>
+                <ul>
+                  <li><strong>DeepL:</strong> Best quality for European languages. Free tier: 500k chars/month. Paid plans available.</li>
+                  <li><strong>OpenAI/ChatGPT:</strong> Great for context-aware translations. Pay per token used.</li>
+                  <li><strong>Google Translate:</strong> Free, no API key needed. May be rate-limited for heavy usage.</li>
+                </ul>
+
+                <h4>API Key</h4>
+                <p>Your authentication key for the selected translation service. Required for DeepL and OpenAI. Not needed for Google Translate.</p>
+                <p><strong>Security:</strong> Your API key is encrypted with AES-256 before being stored locally. It's never shared or transmitted except to the translation service you choose.</p>
+
+                <h4>Chunk Size</h4>
+                <p>The maximum number of characters per translation request. Smaller chunks = more API calls but better error handling. Larger chunks = fewer calls but risk hitting limits. Recommended: 3000-5000 characters.</p>
+                <p>The app automatically recommends optimal chunk sizes based on your selected API plan and document size.</p>
+
+                <h4>OpenAI Model (when using OpenAI/ChatGPT)</h4>
+                <ul>
+                  <li><strong>GPT-3.5 Turbo:</strong> Fast and cost-effective (~$0.002/1K tokens)</li>
+                  <li><strong>GPT-4:</strong> Higher quality, more expensive (~$0.06/1K tokens)</li>
+                  <li><strong>GPT-4 Turbo:</strong> Balanced quality and speed (~$0.01/1K tokens)</li>
+                  <li><strong>GPT-4o:</strong> Latest model with improved performance</li>
+                </ul>
+
+                <h4>Output Format</h4>
+                <p>Choose the format for your translated document. Options include:</p>
+                <ul>
+                  <li><strong>Same as Input:</strong> Keep the original format (EPUB, DOCX, or PDF)</li>
+                  <li><strong>Plain Text:</strong> Simple .txt file</li>
+                  <li><strong>Word Document:</strong> .docx format</li>
+                  <li><strong>EPUB Format:</strong> .epub format for e-readers</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>💡 Tips & Best Practices</h3>
+                <ul>
+                  <li><strong>Start Small:</strong> Test with a short document first to verify everything works</li>
+                  <li><strong>Check Limits:</strong> Monitor API usage regularly to avoid exceeding limits</li>
+                  <li><strong>Use Glossaries:</strong> Define technical or domain-specific terms in the Glossary tab for better consistency</li>
+                  <li><strong>Review Translations:</strong> AI isn't perfect, always review output for accuracy</li>
+                  <li><strong>Respect Copyright:</strong> Only translate documents you have rights to</li>
+                  <li><strong>Save API Keys:</strong> Use the Settings tab to save credentials securely</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3>🎓 About This Project</h3>
+                <p>This project is primarily for <strong>educational purposes and study</strong>. It was developed as a learning project to explore document processing, AI translation APIs, real-time progress tracking, and modern web technologies.</p>
+                <p><strong>AI-Assisted Development:</strong> This project was developed with the assistance of AI tools to help with code generation, debugging, and implementation.</p>
+              </section>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: '20px' }}>
+              <button onClick={() => setShowHelpModal(false)} className="btn-primary">
+                ✓ {t('close') || 'Close'}
+              </button>
+            </div>
           </div>
         </div>
       )}

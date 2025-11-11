@@ -161,7 +161,7 @@ echo ""
 print_info "Creating desktop launcher..."
 DESKTOP_FILE="$HOME/.local/share/applications/smart-book-translator.desktop"
 ICON_PATH="$(pwd)/frontend/public/vite.svg"
-EXEC_PATH="$(pwd)/run.sh"
+EXEC_PATH="$(pwd)/launch.sh"
 
 mkdir -p "$HOME/.local/share/applications"
 
@@ -173,12 +173,14 @@ Name=Smart Book Translator
 Comment=Translate documents using AI
 Exec=$EXEC_PATH
 Icon=$ICON_PATH
-Terminal=true
+Terminal=false
 Categories=Utility;Office;
+StartupNotify=true
 EOF
 
 chmod +x "$DESKTOP_FILE"
-print_success "Desktop launcher created"
+chmod +x "$EXEC_PATH"
+print_success "Desktop launcher created (opens browser automatically)"
 
 # Install desktop launcher
 echo ""

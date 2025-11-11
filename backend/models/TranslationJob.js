@@ -89,10 +89,16 @@ class TranslationChunk {
     stmt.run(translatedText, translatedHtml, status, id);
   }
 
-  static markFailed(id, errorMessage, isRateLimit = false) {
+  static markFailed(id, errorMessage, isRateLimit = false, customRetryDelay = null) {
     // Calculate next retry time based on error type
     let nextRetryAt = null;
-    if (isRateLimit) {
+    
+    if (customRetryDelay !== null) {
+      // Use custom retry delay (e.g., for network errors)
+      const retryDate = new Date();
+      retryDate.setTime(retryDate.getTime() + customRetryDelay);
+      nextRetryAt = retryDate.toISOString();
+    } else if (isRateLimit) {
       // For rate limits, retry in 5-10 minutes
       const retryMinutes = 5 + Math.floor(Math.random() * 5); // 5-10 minutes
       const retryDate = new Date();
@@ -125,12 +131,15 @@ class TranslationChunk {
 
   static getFailedReadyForRetry() {
     const now = new Date().toISOString();
+    // Exclude chunks from paused jobs
     const stmt = db.prepare(`
-      SELECT * FROM translation_chunks 
-      WHERE status = 'failed' 
-        AND next_retry_at IS NOT NULL 
-        AND next_retry_at <= ?
-      ORDER BY next_retry_at ASC
+      SELECT tc.* FROM translation_chunks tc
+      INNER JOIN translation_jobs tj ON tc.job_id = tj.id
+      WHERE tc.status = 'failed' 
+        AND tc.next_retry_at IS NOT NULL 
+        AND tc.next_retry_at <= ?
+        AND tj.status != 'paused'
+      ORDER BY tc.next_retry_at ASC
     `);
     return stmt.all(now);
   }

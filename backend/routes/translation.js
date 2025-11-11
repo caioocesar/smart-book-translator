@@ -9,6 +9,7 @@ import DocumentParser from '../services/documentParser.js';
 import TranslationService from '../services/translationService.js';
 import DocumentBuilder from '../services/documentBuilder.js';
 import { TranslationJob, TranslationChunk } from '../models/TranslationJob.js';
+import Glossary from '../models/Glossary.js';
 import Settings from '../models/Settings.js';
 import Logger from '../utils/logger.js';
 import RateLimiter from '../utils/rateLimiter.js';
@@ -189,7 +190,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
 router.post('/translate/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { apiKey, apiOptions } = req.body;
+    const { apiKey, apiOptions, glossaryIds } = req.body;
 
     const job = TranslationJob.get(jobId);
     if (!job) {
@@ -199,7 +200,7 @@ router.post('/translate/:jobId', async (req, res) => {
     TranslationJob.updateStatus(jobId, 'translating');
 
     // Start translation in background
-    translateJob(jobId, apiKey, apiOptions).catch(error => {
+    translateJob(jobId, apiKey, apiOptions, null, glossaryIds).catch(error => {
       console.error('Translation error:', error);
       TranslationJob.updateStatus(jobId, 'failed', error.message);
     });
@@ -538,11 +539,22 @@ router.post('/retry-all/:jobId', async (req, res) => {
 });
 
 // Background translation function (exported for use by auto-retry service)
-export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null) {
+export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider = null, glossaryIds = null) {
   const job = TranslationJob.get(jobId);
   const chunks = TranslationChunk.getPending(jobId);
   
   const provider = apiProvider || job.api_provider;
+  
+  // Store glossary IDs in a closure variable so it persists across chunk processing
+  // null or undefined = use all, empty array [] = use none, array with IDs = use selected
+  let selectedGlossaryIds = null;
+  if (glossaryIds !== null && glossaryIds !== undefined && Array.isArray(glossaryIds)) {
+    selectedGlossaryIds = glossaryIds.length > 0 ? glossaryIds : []; // Empty array means use no glossary
+  } else {
+    selectedGlossaryIds = null; // null means use all glossary terms
+  }
+  
+  console.log(`📚 Glossary selection: ${selectedGlossaryIds === null ? 'all' : selectedGlossaryIds.length === 0 ? 'none' : `${selectedGlossaryIds.length} selected`}`);
 
   const translationService = new TranslationService(
     provider,
@@ -605,14 +617,35 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         
         await new Promise(resolve => setTimeout(resolve, delay));
 
-        // Pass null to let translate() method retrieve glossary terms automatically
-        // Glossary terms will be fetched based on job.source_language and job.target_language
+        // Get glossary terms - use selected IDs if provided, otherwise use all for language pair
+        // Use the closure variable selectedGlossaryIds instead of job.selectedGlossaryIds
+        let glossaryTerms = null;
+        if (selectedGlossaryIds !== null && selectedGlossaryIds !== undefined) {
+          if (Array.isArray(selectedGlossaryIds) && selectedGlossaryIds.length === 0) {
+            // Empty array = use no glossary terms
+            glossaryTerms = [];
+            console.log(`📚 No glossary terms selected (empty array)`);
+          } else if (Array.isArray(selectedGlossaryIds) && selectedGlossaryIds.length > 0) {
+            // Use selected glossary IDs
+            const allGlossaryTerms = Glossary.getAll(job.source_language, job.target_language);
+            glossaryTerms = allGlossaryTerms.filter(term => selectedGlossaryIds.includes(term.id));
+            console.log(`📚 Using ${glossaryTerms.length} selected glossary terms (out of ${allGlossaryTerms.length} total)`);
+          } else {
+            // Invalid format, fallback to all
+            glossaryTerms = null;
+            console.log(`⚠️  Invalid glossaryIds format, using all glossary terms`);
+          }
+        } else {
+          // null = auto-retrieve all glossary terms from database
+          glossaryTerms = null;
+        }
+        
         const result = await translationService.translate(
           chunk.source_text,
           job.source_language,
           job.target_language,
-          null, // null = auto-retrieve glossary terms from database
-          chunk.source_html || null
+          glossaryTerms, // Selected glossary terms or null for all
+          chunk.source_html || null // Pass HTML to preserve formatting
         );
 
         TranslationChunk.updateTranslation(
@@ -642,6 +675,14 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
           rateLimiter.recordError();
         }
         
+        // Check if it's a network error
+        const isNetworkError = error.message.includes('Network error') || 
+                              error.message.includes('socket hang up') ||
+                              error.message.includes('Connection failed') ||
+                              error.message.includes('timeout') ||
+                              error.message.includes('ECONNRESET') ||
+                              error.message.includes('ETIMEDOUT');
+        
         // Log chunk translation error
         const rateLimiterStatus = rateLimiter.getStatus();
         Logger.logError('translation', `Chunk ${chunk.chunk_index} translation failed`, error, {
@@ -650,11 +691,18 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
           attempts,
           maxRetries,
           isRateLimit,
+          isNetworkError,
           provider,
           rateLimiterStatus
         });
         
-        if (isRateLimit && attempts < maxRetries) {
+        // Retry network errors with shorter delay (30 seconds)
+        if (isNetworkError && attempts < maxRetries) {
+          const waitTime = 30000; // 30 seconds for network errors
+          console.log(`🔄 Network error for chunk ${chunk.chunk_index}, retrying in ${waitTime/1000}s (attempt ${attempts}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue; // Retry this chunk
+        } else if (isRateLimit && attempts < maxRetries) {
           // Use rate limiter's recommended pause duration
           const pauseDuration = rateLimiter.getPauseDuration();
           const waitTime = pauseDuration > 0 
@@ -677,7 +725,19 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         } else {
           // Max retries reached or non-rate-limit error
           console.error(`❌ Chunk ${chunk.chunk_index} failed after ${attempts} attempts:`, error.message);
-          TranslationChunk.markFailed(chunk.id, error.message, isRateLimit);
+          
+          // Check if it's a network error - these should be retried with shorter delay
+          const isNetworkError = error.message.includes('Network error') || 
+                                error.message.includes('socket hang up') ||
+                                error.message.includes('Connection failed') ||
+                                error.message.includes('timeout') ||
+                                error.message.includes('ECONNRESET') ||
+                                error.message.includes('ETIMEDOUT');
+          
+          // For network errors, set a shorter retry delay (30 seconds)
+          // For other errors, use normal retry delay
+          const retryDelay = isNetworkError ? 30000 : null; // 30 seconds for network errors
+          TranslationChunk.markFailed(chunk.id, error.message, isRateLimit, retryDelay);
           failed++;
           TranslationJob.updateProgress(jobId, completed, failed);
           chunkCompleted = true; // Move to next chunk

@@ -17,11 +17,16 @@ class TranslationService {
   }
 
   async translateWithDeepL(text, sourceLang, targetLang, glossaryTerms = [], html = null) {
+    let usePaidEndpoint = false; // Declare outside try block for catch block access
     try {
       // Determine API endpoint based on API key (free vs paid)
-      // Free API keys start with specific patterns, but we'll default to free endpoint
-      // Users with paid plans should use api.deepl.com
-      const url = 'https://api-free.deepl.com/v2/translate';
+      // Free API keys typically start with specific patterns, paid keys use api.deepl.com
+      // Try free endpoint first, fallback to paid if 403 error
+      let url = 'https://api-free.deepl.com/v2/translate';
+      
+      // Check if API key looks like a paid key (usually longer, different format)
+      // Paid keys often don't have the same prefix patterns as free keys
+      // We'll try free first, and if we get 403, retry with paid endpoint
       
       // Normalize language codes for DeepL API
       // DeepL uses: EN, PT (Brazilian), PT-PT (European), ES, FR, DE, IT, etc.
@@ -59,6 +64,17 @@ class TranslationService {
       const useHtml = html && html.trim().length > 0;
       const inputText = useHtml ? html : text;
       
+      // Log HTML usage
+      if (useHtml) {
+        console.log(`📄 Using HTML formatting for DeepL translation (${html.length} chars)`);
+        Logger.logError('translation', 'HTML formatting being used with DeepL', null, {
+          htmlLength: html.length,
+          textLength: text.length,
+          sourceLang: normalizedSourceLang,
+          targetLang: normalizedTargetLang
+        });
+      }
+      
       // Log glossary usage
       if (glossaryTerms && glossaryTerms.length > 0) {
         console.log(`📚 Using ${glossaryTerms.length} glossary terms for DeepL translation`);
@@ -66,12 +82,15 @@ class TranslationService {
           glossaryCount: glossaryTerms.length,
           sourceLang: normalizedSourceLang,
           targetLang: normalizedTargetLang,
-          terms: glossaryTerms.slice(0, 5).map(t => t.source_term) // Log first 5 terms
+          terms: glossaryTerms.slice(0, 5).map(t => `${t.source_term} → ${t.target_term}`) // Log first 5 terms
         });
+      } else {
+        console.log(`📚 No glossary terms provided for DeepL translation`);
       }
       
       // Apply glossary replacements using a more robust approach
       // Use a unique marker that's less likely to be translated
+      // IMPORTANT: For HTML content, we replace terms in text nodes only, preserving HTML structure
       let preprocessedText = inputText;
       const glossaryMap = new Map();
       
@@ -85,9 +104,14 @@ class TranslationService {
           // Use word boundaries to avoid partial matches
           // Escape special regex characters in source_term
           const escapedTerm = term.source_term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          
+          // For HTML content, word boundaries should be sufficient since HTML tags
+          // don't contain word boundaries. DeepL will handle HTML tags correctly.
+          // We use word boundaries to avoid partial matches in both HTML and plain text.
           const regex = new RegExp(`\\b${escapedTerm}\\b`, 'gi');
           preprocessedText = preprocessedText.replace(regex, placeholder);
         }
+        console.log(`🔄 Applied ${glossaryTerms.length} glossary replacements (HTML: ${useHtml ? 'Yes' : 'No'})`);
       }
       
       const params = {
@@ -105,7 +129,34 @@ class TranslationService {
         params.ignore_tags = 'code,pre,script,style'; // Don't translate code blocks and scripts
       }
       
-      const response = await axios.post(url, null, { params });
+      let response;
+      try {
+        response = await axios.post(url, null, { params });
+      } catch (firstError) {
+        // If we get 403 on free endpoint, try paid endpoint
+        if (firstError.response?.status === 403 && !usePaidEndpoint) {
+          console.log('🔄 Free endpoint returned 403, trying paid endpoint...');
+          url = 'https://api.deepl.com/v2/translate';
+          usePaidEndpoint = true;
+          try {
+            response = await axios.post(url, null, { params });
+            console.log('✅ Paid endpoint successful');
+          } catch (paidError) {
+            // If paid endpoint also fails, throw the original error with better message
+            if (paidError.response?.status === 403) {
+              Logger.logConnection('deepl', 'authentication', false, { 
+                error: paidError.message,
+                triedFree: true,
+                triedPaid: true
+              });
+              throw new Error('Invalid API key or authentication failed. Please check if your API key is for a free or paid plan and ensure it\'s correct.');
+            }
+            throw paidError;
+          }
+        } else {
+          throw firstError;
+        }
+      }
 
       let translatedText = response.data.translations[0].text;
       const detectedLang = response.data.translations[0].detected_source_language;
@@ -113,6 +164,7 @@ class TranslationService {
       // Log detected language for debugging
       console.log(`✅ DeepL Response: Detected source language: ${detectedLang}`);
       console.log(`   Requested: ${normalizedSourceLang} → ${normalizedTargetLang}`);
+      console.log(`   Endpoint: ${usePaidEndpoint ? 'Paid (api.deepl.com)' : 'Free (api-free.deepl.com)'}`);
       
       // Warn if detected language doesn't match requested source
       if (detectedLang && detectedLang.toUpperCase() !== normalizedSourceLang) {
@@ -149,14 +201,21 @@ class TranslationService {
         targetLang,
         textLength: text.length,
         hasGlossary: glossaryTerms.length > 0,
-        url: 'https://api-free.deepl.com/v2/translate'
+        url: usePaidEndpoint ? 'https://api.deepl.com/v2/translate' : 'https://api-free.deepl.com/v2/translate'
       });
+      
+      // Handle network errors (socket hang up, connection reset, timeout)
+      if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || 
+          error.message.includes('socket hang up') || error.message.includes('timeout') ||
+          error.message.includes('ECONNREFUSED') || error.message.includes('network')) {
+        throw new Error('Network error: Connection failed. Please check your internet connection and try again.');
+      }
       
       if (error.response?.status === 429) {
         throw new Error('Rate limit exceeded. Please wait before retrying.');
       } else if (error.response?.status === 403) {
         Logger.logConnection('deepl', 'authentication', false, { error: error.message });
-        throw new Error('Invalid API key or authentication failed.');
+        throw new Error('Invalid API key or authentication failed. If you have a paid DeepL plan, the system will automatically try the paid endpoint.');
       } else if (error.response?.status === 456) {
         throw new Error('Character limit exceeded.');
       }
@@ -364,12 +423,18 @@ ${useHtml ? '- The text was extracted from HTML, so preserve paragraph breaks an
 
   async translate(text, sourceLang, targetLang, glossaryTerms = null, html = null) {
     // Get relevant glossary terms if not provided
-    if (!glossaryTerms) {
+    // null = retrieve all, empty array [] = use none, array with items = use those
+    if (glossaryTerms === null) {
+      // null means retrieve all glossary terms from database
       glossaryTerms = Glossary.getAll(sourceLang, targetLang);
       if (glossaryTerms && glossaryTerms.length > 0) {
         console.log(`📚 Retrieved ${glossaryTerms.length} glossary terms from database for ${sourceLang} → ${targetLang}`);
       }
+    } else if (Array.isArray(glossaryTerms) && glossaryTerms.length === 0) {
+      // Empty array means use no glossary terms
+      console.log(`📚 No glossary terms to use (empty array provided)`);
     }
+    // If glossaryTerms is an array with items, use it as-is (already filtered)
 
     switch (this.provider.toLowerCase()) {
       case 'deepl':

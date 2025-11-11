@@ -683,19 +683,29 @@ function HistoryTab({ settings, onTranslationReady }) {
                           {chunk.retry_count > 0 && (
                             <div className="chunk-retry-count">
                               <span>Retries: {chunk.retry_count}</span>
-                              {chunk.next_retry_at && (
+                              {chunk.next_retry_at && job.status !== 'paused' && (
                                 <span className="next-retry-time">
                                   • Next retry: {formatRetryTime(chunk.next_retry_at)}
                                 </span>
                               )}
+                              {chunk.next_retry_at && job.status === 'paused' && (
+                                <span className="next-retry-time" style={{ color: '#6c757d' }}>
+                                  • Retry paused
+                                </span>
+                              )}
                             </div>
                           )}
-                          {chunk.status === 'failed' && chunk.next_retry_at && (
+                          {chunk.status === 'failed' && chunk.next_retry_at && job.status !== 'paused' && (
                             <div className="chunk-retry-info">
                               ⏰ {t('nextRetry')}: <strong>{formatRetryTime(chunk.next_retry_at)}</strong>
                               {formatRetryTime(chunk.next_retry_at) === t('retryNow') && (
                                 <span style={{ marginLeft: '0.5rem', color: '#28a745' }}>🔄 {t('retrying')}...</span>
                               )}
+                            </div>
+                          )}
+                          {chunk.status === 'failed' && job.status === 'paused' && (
+                            <div className="chunk-retry-info" style={{ color: '#6c757d' }}>
+                              ⏸️ {t('paused')} - {t('retryPaused') || 'Retry paused while job is paused'}
                             </div>
                           )}
                           {chunk.status === 'pending' && (

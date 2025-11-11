@@ -81,6 +81,12 @@ class AutoRetryService {
       for (const [jobId, chunks] of Object.entries(chunksByJob)) {
         const job = TranslationJob.get(jobId);
         if (!job) continue;
+        
+        // Skip if job is paused
+        if (job.status === 'paused') {
+          console.log(`⏭️  Auto-retry: Skipping job ${jobId} - job is paused`);
+          continue;
+        }
 
         // Get API key for this job's provider
         const provider = job.api_provider;
@@ -159,8 +165,8 @@ class AutoRetryService {
         const job = TranslationJob.get(jobId);
         if (!job) continue;
 
-        // Skip if job is already translating or completed
-        if (job.status === 'translating' || job.status === 'completed') {
+        // Skip if job is already translating, completed, or paused
+        if (job.status === 'translating' || job.status === 'completed' || job.status === 'paused') {
           continue;
         }
 
