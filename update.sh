@@ -54,13 +54,7 @@ echo ""
 echo "Updating Smart Book Translator..."
 echo ""
 
-# Check if git is available
-if command -v git &> /dev/null; then
-    print_info "Pulling latest changes from git..."
-    git pull || print_info "Not a git repository or no changes available"
-else
-    print_info "Git not available - manual update"
-fi
+# Note: Git pull removed - update manually if needed
 
 # Backup database
 if [ -f "backend/data/translator.db" ]; then

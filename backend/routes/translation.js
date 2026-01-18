@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import db from '../database/db.js';
 import DocumentParser from '../services/documentParser.js';
 import TranslationService from '../services/translationService.js';
+import LocalTranslationService from '../services/localTranslationService.js';
 import DocumentBuilder from '../services/documentBuilder.js';
 import { TranslationJob, TranslationChunk } from '../models/TranslationJob.js';
 import Glossary from '../models/Glossary.js';
@@ -78,8 +79,10 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       return res.status(400).json({ error: 'Missing required parameters: sourceLanguage, targetLanguage, and apiProvider are required' });
     }
 
-    // Google doesn't need API key
-    if (apiProvider !== 'google' && apiProvider !== 'google-translate' && !apiKey) {
+    const normalizedProvider = String(apiProvider).toLowerCase();
+
+    // Google + Local (LibreTranslate) don't need API key
+    if (normalizedProvider !== 'google' && normalizedProvider !== 'google-translate' && normalizedProvider !== 'local' && !apiKey) {
       Logger.logError('upload', 'API key required', null, { apiProvider });
       return res.status(400).json({ error: 'API key is required for this provider' });
     }
@@ -345,7 +348,8 @@ router.get('/download/:jobId', async (req, res) => {
     }
 
     const chunks = TranslationChunk.getByJob(jobId);
-    const translatedChunks = chunks.map(c => c.translated_text);
+    // Use HTML if available, otherwise use plain text (preserves formatting)
+    const translatedChunks = chunks.map(c => c.translated_html || c.translated_text);
 
     // Get output directory from settings or use default
     const outputDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
@@ -353,7 +357,10 @@ router.get('/download/:jobId', async (req, res) => {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    const outputFilename = `translated_${job.filename.replace(/\.[^.]+$/, '')}.${job.output_format}`;
+    // Add language tag to filename [SOURCE-TARGET]
+    const languageTag = `[${job.source_language.toUpperCase()}-${job.target_language.toUpperCase()}]`;
+    const baseFilename = job.filename.replace(/\.[^.]+$/, '');
+    const outputFilename = `translated_${baseFilename}_${languageTag}.${job.output_format}`;
     const outputPath = path.join(outputDir, outputFilename);
 
     await DocumentBuilder.build(translatedChunks, job.output_format, outputPath);
@@ -544,6 +551,7 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
   const chunks = TranslationChunk.getPending(jobId);
   
   const provider = apiProvider || job.api_provider;
+  const providerLower = String(provider || '').toLowerCase();
   
   // Store glossary IDs in a closure variable so it persists across chunk processing
   // null or undefined = use all, empty array [] = use none, array with IDs = use selected
@@ -556,14 +564,18 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
   
   console.log(`📚 Glossary selection: ${selectedGlossaryIds === null ? 'all' : selectedGlossaryIds.length === 0 ? 'none' : `${selectedGlossaryIds.length} selected`}`);
 
-  const translationService = new TranslationService(
-    provider,
-    apiKey,
-    apiOptions
-  );
+  // Create appropriate translation service
+  const translationService = providerLower === 'local'
+    ? null
+    : new TranslationService(provider, apiKey, apiOptions);
+
+  // Local provider uses LibreTranslate (no API key)
+  const localTranslationService = providerLower === 'local'
+    ? new LocalTranslationService(apiOptions?.url || null, apiOptions || {})
+    : null;
 
   // Initialize smart rate limiter
-  const rateLimiter = new RateLimiter(provider);
+  const rateLimiter = new RateLimiter(providerLower);
   
   let completed = 0;
   let failed = 0;
@@ -640,19 +652,54 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
           glossaryTerms = null;
         }
         
-        const result = await translationService.translate(
-          chunk.source_text,
-          job.source_language,
-          job.target_language,
-          glossaryTerms, // Selected glossary terms or null for all
-          chunk.source_html || null // Pass HTML to preserve formatting
-        );
+        let result;
+        let finalTranslatedText;
+        let translatedHtml = null;
 
+        if (providerLower === 'local') {
+          // Local (LibreTranslate) currently translates plain text only
+          const localGlossaryTerms = glossaryTerms === null
+            ? Glossary.getAll(job.source_language, job.target_language)
+            : (Array.isArray(glossaryTerms) ? glossaryTerms : []);
+
+          result = await localTranslationService.translate(
+            chunk.source_text,
+            job.source_language,
+            job.target_language,
+            localGlossaryTerms
+          );
+          finalTranslatedText = result?.translatedText || chunk.source_text;
+        } else {
+          result = await translationService.translate(
+            chunk.source_text,
+            job.source_language,
+            job.target_language,
+            glossaryTerms, // Selected glossary terms or null for all
+            chunk.source_html || null // Pass HTML to preserve formatting
+          );
+
+          // Extract plain text from HTML if HTML was used, otherwise use translatedText
+          finalTranslatedText = result.translatedText;
+          if (!finalTranslatedText && result.translatedHtml) {
+            // Use the translation service's method to extract text from HTML
+            finalTranslatedText = translationService.extractTextFromHtml(result.translatedHtml);
+            translatedHtml = result.translatedHtml;
+          } else {
+            translatedHtml = result.translatedHtml || null;
+          }
+
+          // Only fallback to source if we truly have no translation
+          if (!finalTranslatedText) {
+            finalTranslatedText = chunk.source_text;
+            console.warn(`⚠️  No translated text available for chunk ${chunk.chunk_index}, using source text as fallback`);
+          }
+        }
+        
         TranslationChunk.updateTranslation(
           chunk.id, 
-          result.translatedText || chunk.source_text, // Fallback to source if HTML was used
+          finalTranslatedText,
           'completed',
-          result.translatedHtml || null
+          translatedHtml
         );
         completed++;
         TranslationJob.updateProgress(jobId, completed, failed);
@@ -696,11 +743,26 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
           rateLimiterStatus
         });
         
-        // Retry network errors with shorter delay (30 seconds)
+        // Retry network errors with exponential backoff
         if (isNetworkError && attempts < maxRetries) {
-          const waitTime = 30000; // 30 seconds for network errors
-          console.log(`🔄 Network error for chunk ${chunk.chunk_index}, retrying in ${waitTime/1000}s (attempt ${attempts}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          // Check if rate limiter suggests pausing (high consecutive failures)
+          const rateLimiterStatus = rateLimiter.getStatus();
+          if (rateLimiterStatus.shouldPause && rateLimiterStatus.pauseDuration > 0) {
+            const pauseTime = Math.min(rateLimiterStatus.pauseDuration, 300000); // Max 5 minutes
+            console.log(`⏸️  High failure rate detected. Pausing for ${pauseTime/1000}s before retry (attempt ${attempts}/${maxRetries})`);
+            console.log(`   This helps avoid DeepL connection throttling.`);
+            await new Promise(resolve => setTimeout(resolve, pauseTime));
+            // Reset consecutive failures after pause to give it a fresh start
+            rateLimiter.consecutiveFailures = 0;
+          } else {
+            // Exponential backoff: 5s, 15s, 45s
+            const baseDelay = 5000; // 5 seconds base
+            const waitTime = Math.min(baseDelay * Math.pow(3, attempts - 1), 60000); // Max 60 seconds
+            console.log(`🔄 Network error for chunk ${chunk.chunk_index}, retrying in ${waitTime/1000}s (attempt ${attempts}/${maxRetries})`);
+            console.log(`   Error: ${error.message}`);
+            console.log(`   This may be due to temporary network issues or DeepL server load.`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
           continue; // Retry this chunk
         } else if (isRateLimit && attempts < maxRetries) {
           // Use rate limiter's recommended pause duration
@@ -734,9 +796,15 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
                                 error.message.includes('ECONNRESET') ||
                                 error.message.includes('ETIMEDOUT');
           
-          // For network errors, set a shorter retry delay (30 seconds)
+          // For network errors, use exponential backoff for auto-retry (5s, 15s, 45s)
           // For other errors, use normal retry delay
-          const retryDelay = isNetworkError ? 30000 : null; // 30 seconds for network errors
+          let retryDelay = null;
+          if (isNetworkError) {
+            // Exponential backoff based on retry count: 5s, 15s, 45s
+            const baseDelay = 5000;
+            const retryCount = chunk.retry_count || 0;
+            retryDelay = Math.min(baseDelay * Math.pow(3, retryCount), 60000); // Max 60 seconds
+          }
           TranslationChunk.markFailed(chunk.id, error.message, isRateLimit, retryDelay);
           failed++;
           TranslationJob.updateProgress(jobId, completed, failed);
@@ -854,8 +922,8 @@ router.post('/generate/:jobId', async (req, res) => {
 
     // Get all chunks
     const chunks = TranslationChunk.getByJob(jobId);
-    const translatedTexts = chunks.map(c => c.translated_text);
-    const combinedText = translatedTexts.join('\n\n');
+    // Use HTML if available, otherwise use plain text (preserves formatting)
+    const translatedChunks = chunks.map(c => c.translated_html || c.translated_text);
 
     // Build the output document - use settings output directory or default
     const outputDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
@@ -863,12 +931,15 @@ router.post('/generate/:jobId', async (req, res) => {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    const outputFilename = `translated_${job.filename.replace(/\.[^.]+$/, '')}.${job.output_format}`;
+    // Add language tag to filename [SOURCE-TARGET]
+    const languageTag = `[${job.source_language.toUpperCase()}-${job.target_language.toUpperCase()}]`;
+    const baseFilename = job.filename.replace(/\.[^.]+$/, '');
+    const outputFilename = `translated_${baseFilename}_${languageTag}.${job.output_format}`;
     const outputPath = path.join(outputDir, outputFilename);
 
     // Use DocumentBuilder to create the output file
-    const builder = new DocumentBuilder();
-    await builder.build(combinedText, job.output_format, outputPath);
+    // Pass chunks array to preserve HTML formatting when available
+    await DocumentBuilder.build(translatedChunks, job.output_format, outputPath);
 
     // Update job status
     TranslationJob.updateStatus(jobId, 'completed');
@@ -882,6 +953,124 @@ router.post('/generate/:jobId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate partial document from completed chunks
+// IMPORTANT: This endpoint is read-only and does NOT interfere with ongoing translation.
+// It only reads completed chunks from the database and generates a document.
+// The translation process continues independently in the background.
+router.post('/generate-partial/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    // Read-only operation: Get job info without modifying anything
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Read-only operation: Get all chunks and filter only completed ones
+    // This does not lock or modify the job or chunks in any way
+    const allChunks = TranslationChunk.getByJob(jobId);
+    const completedChunks = allChunks
+      .filter(c => c.status === 'completed')
+      .sort((a, b) => a.chunk_index - b.chunk_index); // Ensure correct order
+
+    if (completedChunks.length === 0) {
+      return res.status(400).json({ 
+        error: 'No completed chunks available to generate document',
+        completed: 0,
+        total: job.total_chunks
+      });
+    }
+
+    // Use HTML if available, otherwise use plain text (preserves formatting)
+    const translatedChunks = completedChunks.map(c => c.translated_html || c.translated_text);
+
+    // Get output directory from settings or use default
+    const outputDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    // Add language tag to filename [SOURCE-TARGET]
+    const languageTag = `[${job.source_language.toUpperCase()}-${job.target_language.toUpperCase()}]`;
+    const baseFilename = job.filename.replace(/\.[^.]+$/, '');
+    const outputFilename = `translated_partial_${baseFilename}_${languageTag}_${completedChunks.length}of${job.total_chunks}.${job.output_format}`;
+    const outputPath = path.join(outputDir, outputFilename);
+
+    // Generate document (file system operation only, doesn't affect translation)
+    await DocumentBuilder.build(translatedChunks, job.output_format, outputPath);
+
+    res.json({ 
+      success: true, 
+      outputPath,
+      outputDirectory: outputDir,
+      outputFilename,
+      completed: completedChunks.length,
+      total: job.total_chunks,
+      message: 'Partial document generated successfully. Translation continues in background.'
+    });
+  } catch (error) {
+    console.error('Error generating partial document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Download partial document
+// IMPORTANT: This endpoint is read-only and does NOT interfere with ongoing translation.
+// It only reads completed chunks and serves the generated file.
+// The translation process continues independently in the background.
+router.get('/download-partial/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    // Read-only operation: Get job info without modifying anything
+    const job = TranslationJob.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Read-only operation: Get all chunks and filter only completed ones
+    // This does not lock or modify the job or chunks in any way
+    const allChunks = TranslationChunk.getByJob(jobId);
+    const completedChunks = allChunks
+      .filter(c => c.status === 'completed')
+      .sort((a, b) => a.chunk_index - b.chunk_index); // Ensure correct order
+
+    if (completedChunks.length === 0) {
+      return res.status(400).json({ 
+        error: 'No completed chunks available to download',
+        completed: 0,
+        total: job.total_chunks
+      });
+    }
+
+    // Use HTML if available, otherwise use plain text (preserves formatting)
+    const translatedChunks = completedChunks.map(c => c.translated_html || c.translated_text);
+
+    // Get output directory from settings or use default
+    const outputDir = Settings.get('outputDirectory') || path.join(__dirname, '..', 'outputs');
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    // Add language tag to filename [SOURCE-TARGET]
+    const languageTag = `[${job.source_language.toUpperCase()}-${job.target_language.toUpperCase()}]`;
+    const baseFilename = job.filename.replace(/\.[^.]+$/, '');
+    const outputFilename = `translated_partial_${baseFilename}_${languageTag}_${completedChunks.length}of${job.total_chunks}.${job.output_format}`;
+    const outputPath = path.join(outputDir, outputFilename);
+
+    // Generate document if it doesn't exist (file system operation only, doesn't affect translation)
+    if (!fs.existsSync(outputPath)) {
+      await DocumentBuilder.build(translatedChunks, job.output_format, outputPath);
+    }
+
+    // Serve the file (read-only operation)
+    res.download(outputPath, outputFilename);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

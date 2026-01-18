@@ -30,8 +30,19 @@
 
 4. **Start the app**
    - Double-click "Smart Book Translator" on desktop
-   - Or run `run.bat` from the folder
-   - Browser opens automatically to http://localhost:5173
+   **Option A - One-line command (Most Reliable):**
+   - Open Command Prompt (Win+R → `cmd` → Enter)
+   - Copy and paste this command (replace path if needed):
+   ```cmd
+   cd /d "C:\Users\caioc\OneDrive\Área de Trabalho\smart-book-translator" && start "Backend" cmd /k "cd /d backend && npm start" && timeout /t 3 /nobreak >nul && start "Frontend" cmd /k "cd /d frontend && npm run dev" && timeout /t 10 /nobreak >nul && start http://localhost:3000
+   ```
+   
+   **Option B - Double-click (if .bat files work):**
+   - Double-click `smart-book-translator.bat` from the project folder
+   - Or run `run.bat` from the folder (wrapper)
+   - Browser opens automatically to http://localhost:3000
+   
+   > **Note**: If your path contains accented characters (like "Área"), use Option A.
 
 5. **Start translating!**
    - No API key needed - use Google Translate (free!)
@@ -73,7 +84,7 @@
    ```
 
 5. **Start translating!**
-   - Browser opens to http://localhost:5173
+   - Browser opens to http://localhost:3000
    - Use Google Translate (free, no key needed!)
    - Or configure API keys in Settings
 
@@ -209,7 +220,7 @@ chmod +x run.sh
 - ~50 MB of dependencies
 
 ### Frontend (React)
-- Vite dev server (Port 5173)
+- Vite dev server (Port 3000)
 - React UI
 - WebSocket client
 - ~150 MB of dependencies
@@ -224,7 +235,7 @@ chmod +x run.sh
 
 After installation:
 
-1. **Open the app** (localhost:5173)
+1. **Open the app** (localhost:3000)
 
 2. **Try Google Translate** (no setup needed!)
    - Go to Translation tab
@@ -289,7 +300,7 @@ You'll know installation worked when:
 ✅ No errors in installation output
 ✅ Desktop shortcut created
 ✅ Backend starts (port 5000)
-✅ Frontend starts (port 5173)
+✅ Frontend starts (port 3000)
 ✅ Browser opens automatically
 ✅ Green "🟢 Online" indicator in app
 ✅ All system tests pass (check System Status)

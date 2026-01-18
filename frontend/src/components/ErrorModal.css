@@ -1,0 +1,350 @@
+/* Error Modal Styles */
+
+.error-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.error-modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.error-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 24px 20px 24px;
+  border-bottom: 1px solid #e0e0e0;
+  background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+  color: white;
+}
+
+.error-modal-icon {
+  flex-shrink: 0;
+}
+
+.error-modal-icon svg {
+  width: 48px;
+  height: 48px;
+  color: white;
+}
+
+.error-modal-title {
+  flex: 1;
+}
+
+.error-modal-title h2 {
+  margin: 0 0 4px 0;
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+.error-code {
+  font-size: 0.9em;
+  opacity: 0.9;
+  font-family: 'Courier New', monospace;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.error-modal-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 32px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.error-modal-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.error-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.error-message {
+  margin-bottom: 20px;
+}
+
+.error-message p {
+  margin: 0;
+  font-size: 1.05em;
+  line-height: 1.6;
+  color: #333;
+}
+
+.error-suggestion {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-left: 4px solid #ff9800;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.error-suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #f57c00;
+}
+
+.error-suggestion-header svg {
+  flex-shrink: 0;
+}
+
+.error-suggestion p {
+  margin: 0;
+  color: #795548;
+  line-height: 1.5;
+}
+
+.error-technical-section {
+  border-top: 1px solid #e0e0e0;
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.error-technical-toggle {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px 16px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95em;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.error-technical-toggle:hover {
+  background: #eeeeee;
+  border-color: #ccc;
+}
+
+.error-technical-toggle svg {
+  flex-shrink: 0;
+}
+
+.error-technical-content {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.error-detail-item {
+  margin-bottom: 16px;
+}
+
+.error-detail-item:last-child {
+  margin-bottom: 0;
+}
+
+.error-detail-item strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #555;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.error-detail-item span {
+  color: #333;
+}
+
+.error-detail-code {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.error-stack {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #e0e0e0;
+  background: #f9f9f9;
+}
+
+.error-modal-footer button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 0.95em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.error-modal-footer button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.btn-error-copy {
+  background: #667eea;
+  color: white;
+}
+
+.btn-error-copy:hover {
+  background: #5568d3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-error-retry {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-error-retry:hover {
+  background: #45a049;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+.btn-error-close {
+  background: #757575;
+  color: white;
+  margin-left: auto;
+}
+
+.btn-error-close:hover {
+  background: #616161;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(117, 117, 117, 0.3);
+}
+
+/* Scrollbar styling for technical details */
+.error-modal-body::-webkit-scrollbar,
+.error-stack::-webkit-scrollbar,
+.error-detail-code::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.error-modal-body::-webkit-scrollbar-track,
+.error-stack::-webkit-scrollbar-track,
+.error-detail-code::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.error-modal-body::-webkit-scrollbar-thumb,
+.error-stack::-webkit-scrollbar-thumb,
+.error-detail-code::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.error-modal-body::-webkit-scrollbar-thumb:hover,
+.error-stack::-webkit-scrollbar-thumb:hover,
+.error-detail-code::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .error-modal-content {
+    max-width: 100%;
+    max-height: 95vh;
+    margin: 10px;
+  }
+
+  .error-modal-header {
+    padding: 20px 16px 16px 16px;
+  }
+
+  .error-modal-body {
+    padding: 16px;
+  }
+
+  .error-modal-footer {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
+
+  .error-modal-footer button {
+    flex: 1;
+    min-width: 120px;
+    justify-content: center;
+  }
+
+  .btn-error-close {
+    margin-left: 0;
+    width: 100%;
+  }
+}

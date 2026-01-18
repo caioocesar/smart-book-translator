@@ -30,20 +30,63 @@ Choose one or both:
 - API Keys → Create new key
 - Copy and save securely
 
-## Step 3: Launch (30 seconds)
+## Step 3: Launch (10 seconds)
 
-### Ubuntu/Linux
+### 🐳 Option A: Docker (Easiest)
+
 ```bash
-./run.sh
+docker-compose up
 ```
 
-### Windows
-Double-click desktop icon or:
+Browser opens to: http://localhost:3000
+
+**First time**: 2-5 minutes (downloading images)  
+**After that**: 10-20 seconds
+
+---
+
+### 🖥️ Option B: Electron (Desktop App)
+
+1. Build once:
+   ```bash
+   npm run electron:build:win  # or :linux
+   ```
+
+2. Double-click the installed app
+
+**Instant startup!**
+
+---
+
+### 📦 Option C: Single Server
+
+```bash
+npm start
+```
+
+Browser opens to: http://localhost:3000
+
+---
+
+### 🛠️ Option D: Development Mode
+
+```bash
+npm run dev
+```
+
+Both servers start with hot-reload.
+
+---
+
+### 💻 Option E: Manual (Windows)
+
+If other methods fail:
+
+1. Open Command Prompt (Win+R → `cmd` → Enter)
+2. Paste:
 ```cmd
-run.bat
+cd /d "C:\Users\YOUR_USER\path\to\smart-book-translator" && start "Backend" cmd /k "cd /d backend && npm start" && timeout /t 3 /nobreak >nul && start "Frontend" cmd /k "cd /d frontend && npm run dev" && timeout /t 10 /nobreak >nul && start http://localhost:3000
 ```
-
-Browser opens to: http://localhost:5173
 
 ## Step 4: Configure (1 minute)
 

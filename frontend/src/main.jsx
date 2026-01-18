@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './styles/global.css'
 import App from './App.jsx'
+import { ErrorProvider } from './contexts/ErrorContext.jsx'
+import setupAxiosInterceptor from './utils/axiosInterceptor.js'
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -11,9 +13,30 @@ if (!rootElement) {
 } else {
   try {
     const root = createRoot(rootElement);
+    
+    // Wrapper component to setup axios interceptor with error context
+    function AppWithErrorHandling() {
+      const errorContextRef = React.useRef(null);
+      
+      React.useEffect(() => {
+        // Setup axios interceptor once we have the error context
+        if (errorContextRef.current) {
+          setupAxiosInterceptor(errorContextRef.current);
+        }
+      }, []);
+      
+      return (
+        <ErrorProvider ref={errorContextRef}>
+          <App />
+        </ErrorProvider>
+      );
+    }
+    
     root.render(
       <StrictMode>
-        <App />
+        <ErrorProvider>
+          <App />
+        </ErrorProvider>
       </StrictMode>
     );
     console.log('✅ React app mounted successfully');

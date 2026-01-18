@@ -19,10 +19,22 @@
 Or search for "Smart Book Translator" in your applications menu.
 
 **Windows:**
-- Double-click the "Smart Book Translator" desktop icon
-- Or run `run.bat` from the project folder
 
-The application will open in your default web browser at `http://localhost:5173`
+**Method 1 - One-line command (Most Reliable):**
+1. Open Command Prompt: Press Win+R, type `cmd`, press Enter
+2. Copy and paste this command:
+```cmd
+cd /d "C:\Users\caioc\OneDrive\Área de Trabalho\smart-book-translator" && start "Backend" cmd /k "cd /d backend && npm start" && timeout /t 3 /nobreak >nul && start "Frontend" cmd /k "cd /d frontend && npm run dev" && timeout /t 10 /nobreak >nul && start http://localhost:3000
+```
+
+**Method 2 - Double-click (if .bat files work):**
+- Double-click `smart-book-translator.bat` from the project folder
+- Or run `run.bat` from the project folder (wrapper)
+- Or use the desktop shortcut if you installed it
+
+The application will open in your default web browser at `http://localhost:3000`
+
+> **Note**: If you have accented characters in your path (like "Área de Trabalho"), Windows may have issues with .bat files. Use Method 1 instead.
 
 ## First Time Setup
 
@@ -130,7 +142,7 @@ Your settings are saved locally and will persist across sessions.
 | Source Term | Target Term | Source Lang | Target Lang | Category |
 |-------------|-------------|-------------|-------------|----------|
 | Artificial Intelligence | Inteligencia Artificial | en | es | Technical |
-| Harry Potter | Harry Potter | en | es | Names |
+| Sample Book | Sample Book | en | es | Names |
 | London | Londres | en | es | Places |
 
 ### Importing Glossary from CSV

@@ -5,6 +5,9 @@ import GlossaryTab from './components/GlossaryTab';
 import SettingsTab from './components/SettingsTab';
 import HistoryTab from './components/HistoryTab';
 import SystemStatus from './components/SystemStatus';
+import ErrorModal from './components/ErrorModal';
+import { ErrorProvider, useError } from './contexts/ErrorContext';
+import setupAxiosInterceptor from './utils/axiosInterceptor';
 import { t, getCurrentLanguage, setCurrentLanguage, getAvailableLanguages } from './utils/i18n';
 
 // Use relative URL to leverage Vite proxy in development
@@ -14,6 +17,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('translation');
   const [settings, setSettings] = useState({});
   const [apiStatus, setApiStatus] = useState(null);
+  const [libreTranslateStatus, setLibreTranslateStatus] = useState(null);
   const [showSystemStatus, setShowSystemStatus] = useState(false);
   const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
   const [hasReadyTranslation, setHasReadyTranslation] = useState(false);
@@ -21,6 +25,21 @@ function App() {
   const [, forceUpdate] = useState();
 
   useEffect(() => {
+    // Load settings on app start
+    const loadSettings = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/settings`);
+        if (response.ok) {
+          const data = await response.json();
+          setSettings(data);
+        }
+      } catch (err) {
+        console.error('Error loading settings:', err);
+      }
+    };
+    
+    loadSettings();
+    
     // Test backend connection
     fetch(`${API_URL}/api/health`)
       .then(res => {
@@ -35,6 +54,9 @@ function App() {
         setApiStatus({ status: 'error', message: 'Backend not connected' });
       });
 
+    // Check LibreTranslate status
+    checkLibreTranslateStatus();
+
     // Show privacy notice on first visit
     const hasSeenNotice = localStorage.getItem('hasSeenPrivacyNotice');
     if (!hasSeenNotice) {
@@ -43,6 +65,10 @@ function App() {
 
     // Check for ready translations
     checkForReadyTranslations();
+
+    // Poll LibreTranslate status every 10 seconds
+    const libreTranslateInterval = setInterval(checkLibreTranslateStatus, 10000);
+    return () => clearInterval(libreTranslateInterval);
   }, []);
 
   const checkForReadyTranslations = async () => {
@@ -53,6 +79,19 @@ function App() {
       setHasReadyTranslation(hasCompleted);
     } catch (err) {
       console.error('Error checking translations:', err);
+    }
+  };
+
+  const checkLibreTranslateStatus = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/local-translation/status`);
+      if (response.ok) {
+        const data = await response.json();
+        setLibreTranslateStatus(data);
+      }
+    } catch (err) {
+      console.error('Error checking LibreTranslate status:', err);
+      setLibreTranslateStatus({ running: false, error: err.message });
     }
   };
 
@@ -76,6 +115,7 @@ function App() {
 
   return (
     <div className="app">
+      <ErrorModal />
       <header className="app-header">
         <div className="header-content">
           <h1>📚 Smart Book Translator</h1>
@@ -101,6 +141,18 @@ function App() {
             >
               🔧 {t('systemStatus')}
             </button>
+            
+            {/* LibreTranslate Status */}
+            <div 
+              className={`status-indicator ${libreTranslateStatus?.running ? 'online' : 'offline'}`}
+              title={libreTranslateStatus?.running ? `LibreTranslate: Running (${libreTranslateStatus?.languageCount || 0} languages)` : 'LibreTranslate: Stopped'}
+              style={{ cursor: 'pointer' }}
+              onClick={() => setActiveTab('settings')}
+            >
+              {libreTranslateStatus?.running ? '🏠 Local' : '🏠 ⚠️'}
+            </div>
+
+            {/* Backend Status */}
             <div className={`status-indicator ${apiStatus?.status === 'ok' ? 'online' : 'offline'}`}>
               {apiStatus?.status === 'ok' ? `🟢 ${t('online')}` : `🔴 ${t('offline')}`}
             </div>

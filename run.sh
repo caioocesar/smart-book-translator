@@ -31,7 +31,7 @@ echo "✅ Application is running!"
 echo "=========================================="
 echo ""
 echo "Backend:  http://localhost:5000"
-echo "Frontend: http://localhost:5173"
+echo "Frontend: http://localhost:3000"
 echo ""
 
 # Wait for frontend to fully start (Vite can take 5-10 seconds)
@@ -75,12 +75,12 @@ else
     echo ""
     echo "⚠️  Could not detect frontend port. Trying to open default port..."
     sleep 2
-    xdg-open "http://localhost:5173" 2>/dev/null || \
-    sensible-browser "http://localhost:5173" 2>/dev/null || \
-    firefox "http://localhost:5173" 2>/dev/null || \
-    google-chrome "http://localhost:5173" 2>/dev/null || \
-    chromium-browser "http://localhost:5173" 2>/dev/null || \
-    echo "⚠️  Please open http://localhost:5173 (or check the frontend output for the correct port) in your browser"
+    xdg-open "http://localhost:3000" 2>/dev/null || \
+    sensible-browser "http://localhost:3000" 2>/dev/null || \
+    firefox "http://localhost:3000" 2>/dev/null || \
+    google-chrome "http://localhost:3000" 2>/dev/null || \
+    chromium-browser "http://localhost:3000" 2>/dev/null || \
+    echo "⚠️  Please open http://localhost:3000 (or check the frontend output for the correct port) in your browser"
 fi
 
 echo ""

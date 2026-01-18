@@ -67,8 +67,9 @@ See [SECURITY.md](SECURITY.md) for complete security documentation.
 
 ### 🌐 Translation
 - **Multiple Format Support**: EPUB, DOCX, PDF input and output
-- **AI-Powered Translation**: DeepL, OpenAI (GPT-3.5/GPT-4), and **Google Translate (FREE!)** integration
-- **🆓 No API Key Required**: Use Google Translate for free without registration
+- **AI-Powered Translation**: DeepL, OpenAI (GPT-3.5/GPT-4), Google Translate, and **LibreTranslate (Local, FREE!)** integration
+- **🏠 Local Translation**: Use LibreTranslate for 100% free, unlimited, private translations (no internet required after setup)
+- **🆓 No API Key Required**: Use Google Translate or LibreTranslate for free without registration
 - **Smart Document Splitting**: Automatically chunks large documents respecting API limits
 - **Progress Tracking**: Real-time progress updates with WebSocket support
 - **Automatic Retry**: Failed chunks are cached and can be retried
@@ -80,6 +81,7 @@ See [SECURITY.md](SECURITY.md) for complete security documentation.
 - **Language-Specific**: Separate glossaries for different language pairs
 - **Category Organization**: Organize terms by category
 - **Automatic Application**: Glossary terms are automatically used during translation
+- **Local Model Support**: Works with LibreTranslate via pre/post-processing
 
 ### ⚙️ Settings
 - **API Configuration**: Save and test API credentials
@@ -108,15 +110,95 @@ The application includes comprehensive automated tests that run on startup:
 
 **View test results**: Click "🔧 System Status" button in the header
 
-## 🚀 Installation & Updates
+## 🚀 Quick Start
 
-### First-Time Installation
+Choose the method that works best for you:
 
-#### Prerequisites
+### Method 1: Docker (Easiest - Recommended) 🐳
+
+**One command to rule them all!**
+
+```bash
+docker-compose up
+```
+
+Then open: http://localhost:3000
+
+✅ Works identically on Windows, Linux, and Mac  
+✅ No Node.js installation needed  
+✅ Includes LibreTranslate (local translation)  
+✅ Isolated environment  
+
+📖 **Full guide**: [DOCKER_GUIDE.md](DOCKER_GUIDE.md)
+
+---
+
+### Method 2: Electron Desktop App 🖥️
+
+**Double-click to launch!**
+
+1. Build the app:
+   ```bash
+   npm run electron:build:win  # Windows
+   npm run electron:build:linux  # Linux
+   ```
+
+2. Find the installer in `electron/dist/`
+
+3. Install and double-click the icon
+
+✅ Native desktop application  
+✅ Auto-starts backend and frontend  
+✅ System tray integration  
+✅ Single executable  
+
+---
+
+### Method 3: Single Server (Simple) 📦
+
+**One command, one server:**
+
+```bash
+npm start
+```
+
+Then open: http://localhost:3000
+
+✅ Backend serves frontend  
+✅ One process to manage  
+✅ Production-ready  
+
+---
+
+### Method 4: Development Mode 🛠️
+
+**For developers with hot-reload:**
+
+```bash
+npm run dev
+```
+
+Runs backend (port 5000) and frontend (port 3000) separately.
+
+---
+
+### Method 5: Manual (Windows - If other methods fail)
+
+If you have path encoding issues (accented characters like "Área"):
+
+1. Open Command Prompt (Win+R → `cmd` → Enter)
+2. Paste this command:
+```cmd
+cd /d "C:\Users\YOUR_USER\path\to\smart-book-translator" && start "Backend" cmd /k "cd /d backend && npm start" && timeout /t 3 /nobreak >nul && start "Frontend" cmd /k "cd /d frontend && npm run dev" && timeout /t 10 /nobreak >nul && start http://localhost:3000
+```
+
+**Note**: Replace the path with your actual project location.
+
+### Prerequisites
 
 - **Node.js 18+** ([Download here](https://nodejs.org/))
-- Internet connection for API calls
-- **Optional**: API keys from DeepL and/or OpenAI (Google Translate is FREE!)
+- **Optional**: Docker Desktop for local translation ([Download here](https://www.docker.com/get-started))
+- **Optional**: API keys from DeepL and/or OpenAI (Google Translate and LibreTranslate are FREE!)
 
 ### Ubuntu/Linux Installation
 
@@ -173,7 +255,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 **Important Notes:**
 - When installing Python, **check "Add Python to PATH"** ✅
 - After installing Build Tools, restart your computer
-- If you get Python errors, see `INSTALACAO_RAPIDA_WINDOWS.md` or `SOLUCAO_PROBLEMAS_WINDOWS.md`
+- If you get Python errors, see the troubleshooting sections in `INSTALLATION_GUIDE.md` and `USAGE_GUIDE.md`
 
 The installer will:
 - Check Node.js and npm versions
@@ -241,7 +323,7 @@ npm run dev
    - Windows: Double-click the desktop shortcut or run `run.bat`
    - The application will open in your browser automatically
 
-> **💡 Tip**: If you see "Backend Offline", make sure you're accessing the correct URL. After starting, the terminal will show the correct URLs (usually `http://localhost:3002` for the frontend and `http://localhost:5000` for the backend). Always refresh your browser after restarting the application!
+> **💡 Tip**: If you see "Backend Offline", make sure you're accessing the correct URL. After starting, the terminal will show the correct URLs (usually `http://localhost:3000` for the frontend and `http://localhost:5000` for the backend). Always refresh your browser after restarting the application!
 
 2. **Configure API Settings** (First Time)
    - Go to the **Settings** tab
@@ -328,7 +410,7 @@ Create `backend/.env`:
 
 ```env
 PORT=5000
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=http://localhost:3000
 NODE_ENV=development
 ```
 

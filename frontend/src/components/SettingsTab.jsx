@@ -27,7 +27,8 @@ function SettingsTab({ onSettingsUpdate }) {
   const loadSettings = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/settings`);
-      setSettings({ ...settings, ...response.data });
+      // Update settings state with all loaded values
+      setSettings(prev => ({ ...prev, ...response.data }));
       if (onSettingsUpdate) {
         onSettingsUpdate(response.data);
       }
@@ -42,19 +43,26 @@ function SettingsTab({ onSettingsUpdate }) {
     setLoading(true);
 
     try {
-      // Save each setting
+      // Save each setting (including empty strings for API keys to allow clearing)
       for (const [key, value] of Object.entries(settings)) {
-        if (value) {
+        // Save all settings, including API keys (even if empty, to allow clearing)
+        // Only skip null/undefined values
+        if (value !== null && value !== undefined) {
           await axios.post(`${API_URL}/api/settings`, { key, value });
         }
       }
       
+      // Reload settings from server to get the saved values
+      await loadSettings();
+      
       setSuccess('Settings saved successfully');
       if (onSettingsUpdate) {
-        onSettingsUpdate(settings);
+        // Use the reloaded settings to ensure we have the latest values
+        const response = await axios.get(`${API_URL}/api/settings`);
+        onSettingsUpdate(response.data);
       }
     } catch (err) {
-      setError('Failed to save settings');
+      setError('Failed to save settings: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
@@ -115,6 +123,25 @@ function SettingsTab({ onSettingsUpdate }) {
           testTranslation: response.data.testTranslation
         }
       });
+      
+      // Auto-save API key if test is successful
+      if (response.data.success && apiKey) {
+        const keyName = `${provider}_api_key`;
+        try {
+          await axios.post(`${API_URL}/api/settings`, { key: keyName, value: apiKey });
+          // Update settings state
+          setSettings(prev => ({ ...prev, [keyName]: apiKey }));
+          // Notify parent component
+          if (onSettingsUpdate) {
+            const allSettings = await axios.get(`${API_URL}/api/settings`);
+            onSettingsUpdate(allSettings.data);
+          }
+          console.log(`✅ API key for ${provider} saved automatically after successful test`);
+        } catch (saveErr) {
+          console.error('Failed to auto-save API key:', saveErr);
+          // Don't show error to user - they can still save manually
+        }
+      }
     } catch (err) {
       setTestResults({ 
         ...testResults, 

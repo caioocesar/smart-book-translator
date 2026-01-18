@@ -11,7 +11,7 @@ Smart Book Translator is currently a **desktop web application** (React + Node.j
 **Status**: ✅ Already Implemented
 
 The current application is responsive and works on mobile browsers:
-- Open http://localhost:5173 on mobile device (same network)
+- Open http://localhost:3000 on mobile device (same network)
 - Use ngrok or similar to expose locally
 - Deploy to cloud and access via mobile browser
 

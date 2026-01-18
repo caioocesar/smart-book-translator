@@ -31,6 +31,15 @@ const translations = {
     apiLimits: 'API Limits',
     noApiKey: 'No API key required for Google Translate',
     analyzingDocument: 'Analyzing document...',
+
+    // Local (LibreTranslate)
+    localTranslationTitle: 'Local Translation (LibreTranslate)',
+    libreTranslateUrl: 'LibreTranslate URL',
+    showAdvanced: 'Show advanced',
+    hideAdvanced: 'Hide advanced',
+    timeoutMs: 'Timeout (ms)',
+    sentenceBatchSize: 'Sentence batch size',
+    saved: 'Saved',
     
     // Document Info
     documentInfo: 'Document Information',
@@ -240,6 +249,15 @@ const translations = {
     apiLimits: 'Limites da API',
     noApiKey: 'Nenhuma chave de API necessária para Google Translate',
     analyzingDocument: 'Analisando documento...',
+
+    // Local (LibreTranslate)
+    localTranslationTitle: 'Tradução Local (LibreTranslate)',
+    libreTranslateUrl: 'URL do LibreTranslate',
+    showAdvanced: 'Mostrar avançado',
+    hideAdvanced: 'Ocultar avançado',
+    timeoutMs: 'Timeout (ms)',
+    sentenceBatchSize: 'Tamanho do lote de sentenças',
+    saved: 'Salvo',
     
     // Document Info
     documentInfo: 'Informações do Documento',
@@ -449,6 +467,15 @@ const translations = {
     apiLimits: 'Límites de API',
     noApiKey: 'No se requiere clave de API para Google Translate',
     analyzingDocument: 'Analizando documento...',
+
+    // Local (LibreTranslate)
+    localTranslationTitle: 'Traducción Local (LibreTranslate)',
+    libreTranslateUrl: 'URL de LibreTranslate',
+    showAdvanced: 'Mostrar avanzado',
+    hideAdvanced: 'Ocultar avanzado',
+    timeoutMs: 'Tiempo de espera (ms)',
+    sentenceBatchSize: 'Tamaño del lote de oraciones',
+    saved: 'Guardado',
     
     // Document Info
     documentInfo: 'Información del Documento',

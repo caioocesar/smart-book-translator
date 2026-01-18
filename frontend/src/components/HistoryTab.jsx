@@ -30,8 +30,17 @@ function HistoryTab({ settings, onTranslationReady }) {
     apiProvider: '',
     apiKey: '',
     openaiModel: '',
-    chunkSize: 3000
+    chunkSize: 3000,
+    deeplOptions: {
+      formality: 'default',
+      split_sentences: '1',
+      preserve_formatting: '0',
+      tag_handling: 'html',
+      ignore_tags: 'code,pre,script,style'
+    }
   });
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [processingStats, setProcessingStats] = useState({}); // Track processing stats per job
 
   useEffect(() => {
     loadJobs();
@@ -44,8 +53,9 @@ function HistoryTab({ settings, onTranslationReady }) {
     
     // Update retry countdown every second for real-time display
     const countdownInterval = setInterval(() => {
-      // Force re-render to update countdown timers
-      setJobs(prev => [...prev]);
+      // Only update currentTime to trigger re-render for countdown timers
+      // Don't update jobs array unnecessarily as it causes re-renders
+      setCurrentTime(new Date());
     }, 1000);
     
     return () => {
@@ -78,21 +88,184 @@ function HistoryTab({ settings, onTranslationReady }) {
   const loadJobChunks = async (jobId) => {
     try {
       const response = await axios.get(`${API_URL}/api/translation/chunks/${jobId}`);
-      setJobChunks(prev => ({ ...prev, [jobId]: response.data }));
+      setJobChunks(prev => {
+        // Only update if data actually changed to avoid unnecessary re-renders
+        const existingChunks = prev[jobId];
+        if (existingChunks && existingChunks.length === response.data.length) {
+          // Check if any chunk status or data changed
+          const hasChanged = existingChunks.some((chunk, idx) => {
+            const newChunk = response.data[idx];
+            return !newChunk || 
+                   chunk.status !== newChunk.status ||
+                   chunk.updated_at !== newChunk.updated_at ||
+                   chunk.next_retry_at !== newChunk.next_retry_at;
+          });
+          if (!hasChanged) {
+            return prev; // No change, return same reference to prevent re-render
+          }
+        }
+        return { ...prev, [jobId]: response.data };
+      });
+      
+      // Update processing stats after chunks are loaded
+      if (jobId === expandedJob) {
+        setTimeout(() => updateProcessingStats(jobId), 100);
+      }
     } catch (err) {
       console.error('Failed to load chunks:', err);
     }
   };
 
+  // Update processing statistics for a job
+  const updateProcessingStats = (jobId) => {
+    const chunks = jobChunks[jobId];
+    if (!chunks || chunks.length === 0) return;
+    
+    const translating = chunks.filter(c => c.status === 'translating');
+    const completed = chunks.filter(c => c.status === 'completed');
+    const pending = chunks.filter(c => c.status === 'pending');
+    
+    // Calculate processing rate (chunks per minute)
+    if (completed.length > 1) {
+      const sortedCompleted = [...completed].sort((a, b) => 
+        new Date(a.updated_at) - new Date(b.updated_at)
+      );
+      const firstCompleted = new Date(sortedCompleted[0]?.updated_at || Date.now());
+      const lastCompleted = new Date(sortedCompleted[sortedCompleted.length - 1]?.updated_at || Date.now());
+      const timeDiff = (lastCompleted - firstCompleted) / 1000 / 60; // minutes
+      const rate = timeDiff > 0 ? completed.length / timeDiff : 0;
+      
+      setProcessingStats(prev => ({
+        ...prev,
+        [jobId]: {
+          currentChunk: translating[0]?.chunk_index + 1 || null,
+          totalChunks: chunks.length,
+          completed: completed.length,
+          pending: pending.length,
+          rate: rate.toFixed(1),
+          queuePosition: pending.length
+        }
+      }));
+    } else if (completed.length === 1) {
+      // Just one completed chunk, set initial stats
+      setProcessingStats(prev => ({
+        ...prev,
+        [jobId]: {
+          currentChunk: translating[0]?.chunk_index + 1 || null,
+          totalChunks: chunks.length,
+          completed: completed.length,
+          pending: pending.length,
+          rate: '0.0',
+          queuePosition: pending.length
+        }
+      }));
+    }
+  };
+
   // Reload chunks for expanded jobs to update countdown timers in real-time
   useEffect(() => {
-    if (expandedJob) {
-      const interval = setInterval(() => {
-        loadJobChunks(expandedJob);
-      }, 1000); // Update every second for real-time countdown
-      return () => clearInterval(interval);
+    if (!expandedJob) return;
+    
+    // Load chunks immediately when job is expanded
+    loadJobChunks(expandedJob);
+    
+    // Set up interval to refresh chunks every second
+    const interval = setInterval(() => {
+      loadJobChunks(expandedJob);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [expandedJob]); // Only depend on expandedJob, not jobChunks to avoid infinite loop
+
+  // Update processing stats when expanded job changes
+  // Note: Processing stats are updated in loadJobChunks callback to avoid dependency loops
+  useEffect(() => {
+    if (expandedJob && jobChunks[expandedJob] && jobChunks[expandedJob].length > 0) {
+      updateProcessingStats(expandedJob);
     }
-  }, [expandedJob]);
+  }, [expandedJob]); // Only depend on expandedJob to avoid re-render loops
+
+  // Calculate estimated time for pending chunks (including failed chunks that are pending retry)
+  const calculateEstimatedTime = (chunk, allChunks, job) => {
+    if (chunk.status !== 'pending') return null;
+    
+    // If chunk has a next_retry_at timestamp (failed chunk pending retry), use that
+    if (chunk.next_retry_at) {
+      const retryTime = new Date(chunk.next_retry_at);
+      const now = new Date();
+      const diffMs = retryTime - now;
+      if (diffMs > 0) {
+        return diffMs; // Return exact time until retry
+      }
+      // If retry time has passed, it should be processing now
+      return 0;
+    }
+    
+    // Find position in queue (how many chunks are ahead, including translating chunks)
+    const pendingChunks = allChunks.filter(c => 
+      (c.status === 'pending' || c.status === 'translating') && 
+      c.chunk_index < chunk.chunk_index
+    );
+    const queuePosition = pendingChunks.length;
+    
+    // Calculate average processing time from completed chunks
+    const completedChunks = allChunks
+      .filter(c => c.status === 'completed' && c.updated_at)
+      .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
+    
+    if (completedChunks.length === 0) {
+      // No completed chunks yet, estimate based on provider defaults
+      const avgTimePerChunk = job.api_provider === 'deepl' ? 5000 : 8000; // 5-8 seconds per chunk
+      const estimatedMs = queuePosition * avgTimePerChunk;
+      return estimatedMs;
+    }
+    
+    // Calculate average time between chunks (use recent chunks for better accuracy)
+    const times = [];
+    const recentChunks = completedChunks.slice(-10); // Use last 10 completed chunks
+    for (let i = 1; i < recentChunks.length; i++) {
+      const prev = new Date(recentChunks[i-1].updated_at);
+      const curr = new Date(recentChunks[i].updated_at);
+      const diff = curr - prev;
+      if (diff > 0 && diff < 120000) { // Only count reasonable times (< 2 minutes)
+        times.push(diff);
+      }
+    }
+    
+    if (times.length === 0) {
+      // Fallback to default
+      const avgTimePerChunk = job.api_provider === 'deepl' ? 5000 : 8000;
+      return queuePosition * avgTimePerChunk;
+    }
+    
+    // Use median for more accurate estimation (less affected by outliers)
+    const sortedTimes = times.sort((a, b) => a - b);
+    const medianTime = sortedTimes[Math.floor(sortedTimes.length / 2)];
+    const estimatedMs = queuePosition * medianTime;
+    
+    return estimatedMs;
+  };
+
+  // Format estimated time with more precision
+  const formatEstimatedTime = (ms) => {
+    if (!ms || ms <= 0) return t('processingNow') || 'Processing now...';
+    
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) {
+      return `${days}d ${hours % 24}h ${minutes % 60}m`;
+    } else if (hours > 0) {
+      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  };
+
 
   const loadStorageInfo = async () => {
     try {
@@ -147,7 +320,7 @@ function HistoryTab({ settings, onTranslationReady }) {
   };
 
   const handleRetry = async () => {
-    if (!retryOptions.apiKey && retryOptions.provider !== 'google') {
+    if (!retryOptions.apiKey && retryOptions.provider !== 'google' && retryOptions.provider !== 'local') {
       setError('Please enter API key');
       return;
     }
@@ -202,12 +375,20 @@ function HistoryTab({ settings, onTranslationReady }) {
   };
 
   const openPauseSettingsModal = (job) => {
+    const deeplOpts = settings.deepl_options || {};
     setPauseSettings({
       jobId: job.id,
       apiProvider: job.api_provider,
       apiKey: settings[`${job.api_provider}_api_key`] || '',
       openaiModel: settings.openai_model || 'gpt-3.5-turbo',
-      chunkSize: settings.chunkSize || 3000
+      chunkSize: settings.chunkSize || 3000,
+      deeplOptions: {
+        formality: deeplOpts.formality || 'default',
+        split_sentences: deeplOpts.split_sentences || '1',
+        preserve_formatting: deeplOpts.preserve_formatting || '0',
+        tag_handling: deeplOpts.tag_handling || 'html',
+        ignore_tags: deeplOpts.ignore_tags || 'code,pre,script,style'
+      }
     });
     setShowPauseSettingsModal(true);
   };
@@ -217,6 +398,14 @@ function HistoryTab({ settings, onTranslationReady }) {
       const apiOptions = {};
       if (pauseSettings.apiProvider === 'openai' || pauseSettings.apiProvider === 'chatgpt') {
         apiOptions.model = pauseSettings.openaiModel;
+      }
+      // Add DeepL options if DeepL is selected
+      if (pauseSettings.apiProvider === 'deepl') {
+        apiOptions.formality = pauseSettings.deeplOptions.formality;
+        apiOptions.split_sentences = pauseSettings.deeplOptions.split_sentences;
+        apiOptions.preserve_formatting = pauseSettings.deeplOptions.preserve_formatting;
+        apiOptions.tag_handling = pauseSettings.deeplOptions.tag_handling;
+        apiOptions.ignore_tags = pauseSettings.deeplOptions.ignore_tags;
       }
       
       await axios.put(`${API_URL}/api/translation/settings/${pauseSettings.jobId}`, {
@@ -243,6 +432,29 @@ function HistoryTab({ settings, onTranslationReady }) {
       loadJobs();
     } catch (err) {
       setError('Failed to delete job');
+    }
+  };
+
+  const handleGeneratePartialDocument = async (jobId) => {
+    setGeneratingDocument(jobId);
+    try {
+      const response = await axios.post(`${API_URL}/api/translation/generate-partial/${jobId}`);
+      const { outputPath, completed, total, outputFilename } = response.data;
+      setOutputPaths(prev => ({ ...prev, [jobId]: outputPath }));
+      
+      // Automatically download the partial document
+      window.open(`${API_URL}/api/translation/download-partial/${jobId}`, '_blank');
+      
+      // Show success message
+      setTimeout(() => {
+        alert(`Partial document generated and downloaded!\n\nCompleted: ${completed}/${total} chunks\n\nFile: ${outputFilename}`);
+      }, 500);
+      
+      loadJobs();
+    } catch (err) {
+      setError(`Failed to generate partial document: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setGeneratingDocument(null);
     }
   };
 
@@ -511,6 +723,18 @@ function HistoryTab({ settings, onTranslationReady }) {
                     </button>
                   )}
 
+                  {/* Partial document download - show when there are completed chunks but not all are done */}
+                  {job.completed_chunks > 0 && job.completed_chunks < job.total_chunks && (
+                    <button 
+                      onClick={() => handleGeneratePartialDocument(job.id)}
+                      className="btn-small btn-info"
+                      disabled={generatingDocument === job.id}
+                      title={t('downloadPartial') || `Download partial document (${job.completed_chunks}/${job.total_chunks} chunks completed)`}
+                    >
+                      {generatingDocument === job.id ? `⏳ ${t('generating')}` : `📄 ${t('downloadPartial') || 'Download Partial'} (${job.completed_chunks}/${job.total_chunks})`}
+                    </button>
+                  )}
+
                   {job.status === 'completed' && (
                     <button 
                       onClick={() => handleDownload(job.id)}
@@ -526,10 +750,10 @@ function HistoryTab({ settings, onTranslationReady }) {
                       <button 
                         onClick={() => openRetryModal(job, false)}
                         className="btn-small btn-warning"
-                        disabled={retryingJob === job.id}
-                        title={t('retryFailed')}
+                        disabled={retryingJob === job.id || job.failed_chunks === 0}
+                        title={job.failed_chunks > 0 ? `${t('retryFailed')} (${job.failed_chunks} ${t('chunks')})` : t('noFailedChunks') || 'No failed chunks to retry'}
                       >
-                        {retryingJob === job.id ? '⏳' : '🔄'} {t('retryFailed')}
+                        {retryingJob === job.id ? '⏳' : '🔄'} {t('retryFailed')} {job.failed_chunks > 0 && `(${job.failed_chunks})`}
                       </button>
                       <button 
                         onClick={() => openRetryModal(job, true)}
@@ -597,6 +821,40 @@ function HistoryTab({ settings, onTranslationReady }) {
                   </button>
                 </div>
               </div>
+
+                  {/* Real-time Processing Info */}
+                  {expandedJob === job.id && job.status === 'translating' && processingStats[job.id] && (
+                    <div className="processing-info-card">
+                      <div className="processing-header">
+                        <span className="processing-icon">📊</span>
+                        <strong>{t('liveProcessing') || 'Live Processing Status'}</strong>
+                      </div>
+                      <div className="processing-stats">
+                        {processingStats[job.id].currentChunk && (
+                          <div className="stat-item">
+                            <span className="stat-label">🔄 {t('currentChunk') || 'Current'}:</span>
+                            <span className="stat-value">#{processingStats[job.id].currentChunk}</span>
+                          </div>
+                        )}
+                        <div className="stat-item">
+                          <span className="stat-label">✅ {t('completed')}:</span>
+                          <span className="stat-value">{processingStats[job.id].completed} / {processingStats[job.id].totalChunks}</span>
+                        </div>
+                        {processingStats[job.id].pending > 0 && (
+                          <div className="stat-item">
+                            <span className="stat-label">⏳ {t('pending')}:</span>
+                            <span className="stat-value">{processingStats[job.id].pending}</span>
+                          </div>
+                        )}
+                        {processingStats[job.id].rate > 0 && (
+                          <div className="stat-item">
+                            <span className="stat-label">⚡ {t('speed') || 'Speed'}:</span>
+                            <span className="stat-value">{processingStats[job.id].rate} {t('chunksPerMinute') || 'chunks/min'}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Chunk Details */}
               {expandedJob === job.id && (
@@ -708,11 +966,79 @@ function HistoryTab({ settings, onTranslationReady }) {
                               ⏸️ {t('paused')} - {t('retryPaused') || 'Retry paused while job is paused'}
                             </div>
                           )}
-                          {chunk.status === 'pending' && (
-                            <div className="chunk-pending-info">
-                              ⏳ {t('pending')} - {t('willProcessSoon')}
-                            </div>
-                          )}
+                          {chunk.status === 'pending' && (() => {
+                            const estimatedMs = calculateEstimatedTime(chunk, jobChunks[job.id] || [], job);
+                            const stats = processingStats[job.id];
+                            const allChunks = jobChunks[job.id] || [];
+                            const queuePosition = allChunks.filter(c => 
+                              (c.status === 'pending' || c.status === 'translating') && 
+                              c.chunk_index < chunk.chunk_index
+                            ).length;
+                            const isFailedRetry = chunk.retry_count > 0;
+                            const hasRetryTime = chunk.next_retry_at;
+                            
+                            return (
+                              <div className="chunk-pending-info">
+                                <div className="pending-header">
+                                  <span className="pending-icon">⏳</span>
+                                  <strong>
+                                    {isFailedRetry ? `${t('pending')} (${t('retry')} #${chunk.retry_count})` : t('pending')}
+                                  </strong>
+                                </div>
+                                {estimatedMs && estimatedMs > 0 && (
+                                  <div className="pending-details">
+                                    <div className="pending-time-row">
+                                      <span className="pending-time">
+                                        ⏰ {hasRetryTime ? (t('scheduledRetry') || 'Scheduled retry') : (t('estimatedTime') || 'Estimated')}: 
+                                        <strong style={{ marginLeft: '0.25rem' }}>{formatEstimatedTime(estimatedMs)}</strong>
+                                      </span>
+                                      {hasRetryTime && (
+                                        <span className="pending-retry-time" style={{ fontSize: '0.85em', color: '#6c757d' }}>
+                                          ({new Date(chunk.next_retry_at).toLocaleTimeString()})
+                                        </span>
+                                      )}
+                                    </div>
+                                    {queuePosition > 0 && (
+                                      <div className="pending-queue-row">
+                                        <span className="pending-queue">
+                                          📋 {t('queuePosition') || 'Queue'}: <strong>{queuePosition}</strong> {t('chunksAhead') || 'chunks ahead'}
+                                        </span>
+                                        {stats && stats.rate > 0 && (
+                                          <span className="pending-queue-calc" style={{ fontSize: '0.85em', color: '#6c757d' }}>
+                                            (≈{Math.ceil(queuePosition / stats.rate)} {t('minutes') || 'min'})
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {stats && stats.rate > 0 && (
+                                      <div className="pending-rate-row">
+                                        <span className="pending-rate">
+                                          ⚡ {t('processingSpeed') || 'Speed'}: <strong>{stats.rate.toFixed(1)}</strong> {t('chunksPerMinute') || 'chunks/min'}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {isFailedRetry && chunk.error_message && (
+                                      <div className="pending-error-info" style={{ fontSize: '0.85em', color: '#dc3545', marginTop: '0.25rem' }}>
+                                        ⚠️ {t('lastError') || 'Last error'}: {chunk.error_message.substring(0, 80)}...
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {(!estimatedMs || estimatedMs <= 0) && (
+                                  <div className="pending-details">
+                                    <span className="pending-time" style={{ color: '#28a745' }}>
+                                      🔄 {t('processingNow') || 'Processing now...'}
+                                    </span>
+                                    {isFailedRetry && (
+                                      <span style={{ marginLeft: '0.5rem', fontSize: '0.85em', color: '#6c757d' }}>
+                                        ({t('retryAttempt') || 'Retry attempt'} #{chunk.retry_count})
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       ))}
                     </div>
@@ -763,6 +1089,7 @@ function HistoryTab({ settings, onTranslationReady }) {
                 value={pauseSettings.apiProvider}
                 onChange={(e) => setPauseSettings({...pauseSettings, apiProvider: e.target.value, apiKey: ''})}
               >
+                <option value="local">Local (LibreTranslate)</option>
                 <option value="google">Google Translate (Free)</option>
                 <option value="deepl">DeepL</option>
                 <option value="openai">OpenAI</option>
@@ -770,7 +1097,7 @@ function HistoryTab({ settings, onTranslationReady }) {
               </select>
             </div>
 
-            {pauseSettings.apiProvider !== 'google' && (
+            {pauseSettings.apiProvider !== 'google' && pauseSettings.apiProvider !== 'local' && (
               <div className="form-group">
                 <label>{t('apiKey') || 'API Key'}</label>
                 <input
@@ -794,6 +1121,98 @@ function HistoryTab({ settings, onTranslationReady }) {
                   <option value="gpt-4-turbo">GPT-4 Turbo</option>
                   <option value="gpt-4o">GPT-4o</option>
                 </select>
+              </div>
+            )}
+
+            {/* DeepL API Options */}
+            {pauseSettings.apiProvider === 'deepl' && (
+              <div className="deepl-options-section" style={{ 
+                border: '1px solid #e0e0e0', 
+                borderRadius: '8px', 
+                padding: '16px', 
+                marginTop: '8px',
+                backgroundColor: '#f9f9f9'
+              }}>
+                <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '1em', color: '#333' }}>
+                  ⚙️ {t('deeplApiOptions') || 'DeepL API Options'}
+                </h4>
+                
+                <div className="form-group">
+                  <label><strong>{t('formality') || 'Translation Formality'}</strong></label>
+                  <select 
+                    value={pauseSettings.deeplOptions.formality} 
+                    onChange={(e) => setPauseSettings({
+                      ...pauseSettings, 
+                      deeplOptions: {...pauseSettings.deeplOptions, formality: e.target.value}
+                    })}
+                  >
+                    <option value="default">Default - Standard formality (recommended)</option>
+                    <option value="less">Less Formal - Casual, natural tone</option>
+                    <option value="more">More Formal - Professional, business tone</option>
+                    <option value="prefer_less">Prefer Less Formal - Mostly casual</option>
+                    <option value="prefer_more">Prefer More Formal - Mostly formal</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label><strong>{t('splitSentences') || 'Sentence Splitting'}</strong></label>
+                  <select 
+                    value={pauseSettings.deeplOptions.split_sentences} 
+                    onChange={(e) => setPauseSettings({
+                      ...pauseSettings, 
+                      deeplOptions: {...pauseSettings.deeplOptions, split_sentences: e.target.value}
+                    })}
+                  >
+                    <option value="1">Split on punctuation and newlines (Default)</option>
+                    <option value="nonewlines">Split on punctuation only - Keep line breaks</option>
+                    <option value="0">Don't split sentences - Keep as written</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label><strong>{t('preserveFormatting') || 'Preserve Original Formatting'}</strong></label>
+                  <select 
+                    value={pauseSettings.deeplOptions.preserve_formatting} 
+                    onChange={(e) => setPauseSettings({
+                      ...pauseSettings, 
+                      deeplOptions: {...pauseSettings.deeplOptions, preserve_formatting: e.target.value}
+                    })}
+                  >
+                    <option value="0">No - Normalize formatting (Default - Better quality)</option>
+                    <option value="1">Yes - Keep original spacing and line breaks</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label><strong>{t('tagHandling') || 'HTML/XML Tag Handling'}</strong></label>
+                  <select 
+                    value={pauseSettings.deeplOptions.tag_handling} 
+                    onChange={(e) => setPauseSettings({
+                      ...pauseSettings, 
+                      deeplOptions: {...pauseSettings.deeplOptions, tag_handling: e.target.value}
+                    })}
+                  >
+                    <option value="html">HTML - For EPUB, DOCX, web content (Default)</option>
+                    <option value="xml">XML - For XML documents only</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label><strong>{t('ignoreTags') || 'Tags to Skip (Don\'t Translate)'}</strong></label>
+                  <input
+                    type="text"
+                    value={pauseSettings.deeplOptions.ignore_tags}
+                    onChange={(e) => setPauseSettings({
+                      ...pauseSettings, 
+                      deeplOptions: {...pauseSettings.deeplOptions, ignore_tags: e.target.value}
+                    })}
+                    placeholder="code,pre,script,style"
+                    style={{ width: '100%' }}
+                  />
+                  <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
+                    Comma-separated tag names (e.g., code,pre,script,style)
+                  </small>
+                </div>
               </div>
             )}
 
@@ -845,6 +1264,7 @@ function HistoryTab({ settings, onTranslationReady }) {
                   value={retryOptions.provider} 
                   onChange={(e) => setRetryOptions({...retryOptions, provider: e.target.value, apiKey: ''})}
                 >
+                <option value="local">Local (LibreTranslate)</option>
                   <option value="google">Google Translate (Free)</option>
                   <option value="deepl">DeepL</option>
                   <option value="openai">OpenAI</option>
@@ -855,7 +1275,7 @@ function HistoryTab({ settings, onTranslationReady }) {
                 </p>
               </div>
 
-              {retryOptions.provider !== 'google' && (
+              {retryOptions.provider !== 'google' && retryOptions.provider !== 'local' && (
                 <div className="form-group">
                   <label>API Key</label>
                   <input

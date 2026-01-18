@@ -8,26 +8,104 @@ const __dirname = path.dirname(__filename);
 
 class DocumentBuilder {
   static async buildPlainText(chunks, outputPath) {
-    const content = chunks.join('\n\n');
+    // If chunks contain HTML, extract text; otherwise use as-is
+    const processedChunks = chunks.map(chunk => {
+      if (typeof chunk === 'string' && chunk.includes('<')) {
+        // Extract text from HTML, preserving line breaks and paragraph structure
+        let text = chunk
+          // Handle paragraph breaks
+          .replace(/<p[^>]*>/gi, '')
+          .replace(/<\/p>/gi, '\n\n')
+          // Handle line breaks
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<br\s+class="calibre1"[^>]*\/?>/gi, '\n')
+          // Remove all HTML tags
+          .replace(/<[^>]+>/g, '')
+          // Decode HTML entities
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&apos;/g, "'")
+          // Clean up excessive whitespace
+          .replace(/\n\s*\n\s*\n+/g, '\n\n')
+          .trim();
+        
+        return text;
+      }
+      return chunk;
+    });
+    const content = processedChunks.join('\n\n');
     fs.writeFileSync(outputPath, content, 'utf-8');
     return outputPath;
   }
 
   static async buildDOCX(chunks, outputPath) {
-    // Simple DOCX structure (XML-based)
-    const content = chunks.join('\n\n');
+    // Check if chunks contain HTML (from DeepL with formatting)
+    const hasHtml = chunks.some(chunk => typeof chunk === 'string' && chunk.includes('<'));
     
     // Create a basic DOCX (which is a ZIP file with XML)
-    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>
-    ${chunks.map(chunk => `
+    let bodyContent;
+    if (hasHtml) {
+      // Convert HTML to DOCX paragraphs - preserve basic formatting
+      bodyContent = chunks.map(chunk => {
+        if (typeof chunk === 'string' && chunk.includes('<')) {
+          // Simple HTML to DOCX conversion - extract text from paragraphs
+          // Preserve basic formatting structure
+          let text = chunk
+            // Handle paragraph breaks
+            .replace(/<p[^>]*>/gi, '')
+            .replace(/<\/p>/gi, '\n\n')
+            // Handle line breaks
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<br\s+class="calibre1"[^>]*\/?>/gi, '\n')
+            // Remove all HTML tags (DOCX will handle formatting via XML)
+            .replace(/<[^>]+>/g, '')
+            // Decode HTML entities
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'")
+            // Clean up whitespace
+            .replace(/\n\s*\n\s*\n+/g, '\n\n')
+            .trim();
+          
+          // Split into paragraphs for proper DOCX formatting
+          const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+          text = paragraphs.join('\n\n');
+          return `
+    <w:p>
+      <w:r>
+        <w:t xml:space="preserve">${this.escapeXml(text)}</w:t>
+      </w:r>
+    </w:p>`;
+        } else {
+          return `
     <w:p>
       <w:r>
         <w:t xml:space="preserve">${this.escapeXml(chunk)}</w:t>
       </w:r>
-    </w:p>
-    `).join('')}
+    </w:p>`;
+        }
+      }).join('');
+    } else {
+      // Plain text
+      bodyContent = chunks.map(chunk => `
+    <w:p>
+      <w:r>
+        <w:t xml:space="preserve">${this.escapeXml(chunk)}</w:t>
+      </w:r>
+    </w:p>`).join('');
+    }
+    
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>${bodyContent}
   </w:body>
 </w:document>`;
 
@@ -132,7 +210,85 @@ class DocumentBuilder {
   </spine>
 </package>`);
 
-    // Write chapter1.xhtml
+    // Check if chunks contain HTML (from DeepL with formatting)
+    const hasHtml = chunks.some(chunk => typeof chunk === 'string' && chunk.includes('<'));
+    
+    // Write chapter1.xhtml - extract text from HTML and format properly for EPUB
+    let bodyContent;
+    if (hasHtml) {
+      // Chunks contain HTML from DeepL - extract text content and format as clean paragraphs
+      bodyContent = chunks.map(chunk => {
+        if (typeof chunk === 'string' && chunk.includes('<')) {
+          // Extract text content from HTML, preserving paragraph structure
+          // First, handle nested tags and preserve formatting structure
+          let text = chunk
+            // Handle italic/emphasis tags - preserve for later
+            .replace(/<em[^>]*>/gi, '<em>')
+            .replace(/<i[^>]*>/gi, '<i>')
+            .replace(/<span[^>]*class="italic"[^>]*>/gi, '<i>')
+            // Handle strong/bold tags
+            .replace(/<strong[^>]*>/gi, '<strong>')
+            .replace(/<b[^>]*>/gi, '<b>')
+            // Replace paragraph tags with paragraph markers
+            .replace(/<p[^>]*>/gi, '\n\n')
+            .replace(/<\/p>/gi, '')
+            // Replace line breaks
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<br\s+class="calibre1"[^>]*\/?>/gi, '\n')
+            // Remove all other HTML tags except basic formatting
+            .replace(/<(?!\/?(?:em|i|strong|b)\b)[^>]+>/g, '')
+            // Decode HTML entities
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'")
+            // Clean up whitespace but preserve paragraph breaks
+            .replace(/\n\s*\n\s*\n+/g, '\n\n')
+            .trim();
+          
+          // Split into paragraphs and wrap each properly
+          const paragraphs = text
+            .split(/\n\s*\n/)
+            .map(p => {
+              let para = p.trim();
+              if (!para || para.length === 0) return null;
+              
+              // Preserve italic/bold formatting if present
+              para = para
+                .replace(/<em>/gi, '<em>')
+                .replace(/<\/em>/gi, '</em>')
+                .replace(/<i>/gi, '<em>')
+                .replace(/<\/i>/gi, '</em>')
+                .replace(/<strong>/gi, '<strong>')
+                .replace(/<\/strong>/gi, '</strong>')
+                .replace(/<b>/gi, '<strong>')
+                .replace(/<\/b>/gi, '</strong>');
+              
+              // Escape XML but preserve allowed tags
+              para = para
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/&lt;(\/?)(em|strong)&gt;/gi, '<$1$2>');
+              
+              return `<p>${para}</p>`;
+            })
+            .filter(p => p !== null);
+          
+          return paragraphs.join('\n  ') || `<p>${this.escapeXml(chunk.replace(/<[^>]+>/g, ''))}</p>`;
+        } else {
+          // Plain text - escape and wrap in paragraph
+          return `<p>${this.escapeXml(chunk)}</p>`;
+        }
+      }).filter(chunk => chunk && chunk.trim().length > 0).join('\n  ');
+    } else {
+      // Plain text - escape and wrap in paragraphs
+      bodyContent = chunks.map(chunk => `<p>${this.escapeXml(chunk)}</p>`).join('\n  ');
+    }
+    
     fs.writeFileSync(path.join(oebpsDir, 'chapter1.xhtml'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -140,7 +296,7 @@ class DocumentBuilder {
   <title>${metadata.title || 'Translated Document'}</title>
 </head>
 <body>
-  ${chunks.map(chunk => `<p>${this.escapeXml(chunk)}</p>`).join('\n  ')}
+  ${bodyContent}
 </body>
 </html>`);
 

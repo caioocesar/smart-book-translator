@@ -5,23 +5,23 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "📦 Smart Book Translator - Update" -ForegroundColor Cyan
+Write-Host "Smart Book Translator - Update" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
 function Print-Success {
     param($Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
 function Print-Error {
     param($Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
 function Print-Info {
     param($Message)
-    Write-Host "ℹ $Message" -ForegroundColor Yellow
+    Write-Host "[INFO] $Message" -ForegroundColor Yellow
 }
 
 function Stop-Application {
@@ -106,22 +106,7 @@ if ([string]::IsNullOrWhiteSpace($stopApp) -or $stopApp -eq "Y" -or $stopApp -eq
     Stop-Application
 }
 
-# Check if git is available
-try {
-    if (Get-Command git -ErrorAction SilentlyContinue) {
-        Print-Info "Pulling latest changes from git..."
-        git pull 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Print-Success "Git pull completed"
-        } else {
-            Print-Info "No changes or not a git repository"
-        }
-    } else {
-        Print-Info "Git not available - manual update"
-    }
-} catch {
-    Print-Info "Not a git repository or no changes available"
-}
+# Note: Git pull removed - update manually if needed
 
 # Backup database
 if (Test-Path "backend\data\translator.db") {
@@ -163,7 +148,7 @@ Set-Location ..
 
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Green
-Write-Host "✅ Update Complete!" -ForegroundColor Green
+Write-Host "Update Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Changes applied. Your data and settings are preserved."

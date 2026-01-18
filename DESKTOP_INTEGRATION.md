@@ -13,7 +13,7 @@ Smart Book Translator is now a fully integrated desktop application!
 
 **Root Cause**: 
 - Frontend was trying to connect to `http://localhost:5000` directly
-- But frontend was on different port (3002)
+- Frontend is configured to use port 3000 (see vite.config.js)
 - Cross-origin request failing
 
 **Solution**:
@@ -51,7 +51,7 @@ Smart Book Translator is now a fully integrated desktop application!
    - ✅ Checks if app already running
    - ✅ Starts backend automatically
    - ✅ Starts frontend automatically
-   - ✅ Detects frontend port (3002, 5173, 3001, 3000)
+   - ✅ Detects frontend port (3000, 5173, 3002, 3001) - prioritizes 3000
    - ✅ Opens browser automatically
    - ✅ Shows desktop notification
    - ✅ Logs to /tmp for debugging
@@ -308,7 +308,7 @@ update-desktop-database ~/.local/share/applications/
 # Had to do this every time:
 Terminal 1: cd backend && npm start
 Terminal 2: cd frontend && npm run dev
-Browser: manually open http://localhost:5173
+Browser: manually open http://localhost:3000
 ```
 
 ### After

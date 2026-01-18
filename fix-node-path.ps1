@@ -1,59 +1,72 @@
-# Script para corrigir o PATH do Node.js no Windows
-# Este script adiciona o Node.js ao PATH da sessão atual
+# Fix Node.js PATH on Windows
+# Adds Node.js to the PATH for the current PowerShell session.
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "Corrigindo PATH do Node.js" -ForegroundColor Cyan
+Write-Host "Fixing Node.js PATH (current session)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$nodePath = "C:\Program Files\nodejs"
+$possiblePaths = @(
+  "C:\Program Files\nodejs",
+  "$env:LOCALAPPDATA\Programs\nodejs",
+  "$env:ProgramFiles\nodejs",
+  "$env:ProgramFiles(x86)\nodejs"
+)
 
-if (Test-Path "$nodePath\node.exe") {
-    Write-Host "[OK] Node.js encontrado em: $nodePath" -ForegroundColor Green
-    
-    # Adicionar ao PATH da sessão atual
-    $env:PATH = "$nodePath;$env:PATH"
-    
-    Write-Host "[OK] Node.js adicionado ao PATH desta sessão" -ForegroundColor Green
-    Write-Host ""
-    
-    # Verificar se funciona
-    $nodeVersion = & "$nodePath\node.exe" -v
-    $npmVersion = & "$nodePath\npm.cmd" -v
-    
-    Write-Host "Node.js versao: $nodeVersion" -ForegroundColor Cyan
-    Write-Host "npm versao: $npmVersion" -ForegroundColor Cyan
-    Write-Host ""
-    
-    Write-Host "==========================================" -ForegroundColor Green
-    Write-Host "Node.js configurado com sucesso!" -ForegroundColor Green
-    Write-Host "==========================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "IMPORTANTE: Esta correcao e temporaria para esta sessao." -ForegroundColor Yellow
-    Write-Host "Para tornar permanente, execute como Administrador:" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  [System.Environment]::SetEnvironmentVariable(" -ForegroundColor White
-    Write-Host "    'Path'," -ForegroundColor White
-    Write-Host "    [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';$nodePath'," -ForegroundColor White
-    Write-Host "    'Machine'" -ForegroundColor White
-    Write-Host "  )" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Ou reinicie o PowerShell/Terminal apos instalar o Node.js." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Agora voce pode executar:" -ForegroundColor Green
-    Write-Host "  .\install-windows.ps1" -ForegroundColor White
-    Write-Host ""
-    
-} else {
-    Write-Host "[ERRO] Node.js nao encontrado em: $nodePath" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Por favor, instale o Node.js:" -ForegroundColor Yellow
-    Write-Host "  1. Acesse: https://nodejs.org/" -ForegroundColor White
-    Write-Host "  2. Baixe a versao LTS (18 ou superior)" -ForegroundColor White
-    Write-Host "  3. Execute o instalador .msi" -ForegroundColor White
-    Write-Host "  4. Certifique-se de marcar 'Add to PATH' durante a instalacao" -ForegroundColor White
-    Write-Host "  5. Reinicie o PowerShell" -ForegroundColor White
-    Write-Host ""
-    exit 1
+$nodePath = $null
+foreach ($p in $possiblePaths) {
+  if (Test-Path (Join-Path $p "node.exe")) {
+    $nodePath = $p
+    break
+  }
 }
+
+if ($nodePath) {
+  Write-Host "[OK] Node.js found at: $nodePath" -ForegroundColor Green
+
+  # Add to PATH for this session
+  $env:PATH = "$nodePath;$env:PATH"
+  Write-Host "[OK] Added Node.js to PATH for this PowerShell session" -ForegroundColor Green
+  Write-Host ""
+
+  # Verify it works
+  try {
+    $nodeVersion = & (Join-Path $nodePath "node.exe") -v
+    $npmVersion  = & (Join-Path $nodePath "npm.cmd") -v
+
+    Write-Host "Node.js version: $nodeVersion" -ForegroundColor Cyan
+    Write-Host "npm version:     $npmVersion" -ForegroundColor Cyan
+    Write-Host ""
+
+    Write-Host "==========================================" -ForegroundColor Green
+    Write-Host "Node.js is ready to use in this session!" -ForegroundColor Green
+    Write-Host "==========================================" -ForegroundColor Green
+    Write-Host ""
+
+    Write-Host "IMPORTANT: This fix is temporary (only for this session)." -ForegroundColor Yellow
+    Write-Host "For a permanent fix:" -ForegroundColor Yellow
+    Write-Host "  - Reinstall Node.js LTS from https://nodejs.org/" -ForegroundColor White
+    Write-Host "  - Make sure 'Add to PATH' is enabled" -ForegroundColor White
+    Write-Host "  - Close and reopen PowerShell/Terminal" -ForegroundColor White
+    Write-Host ""
+
+    Write-Host "Next, you can run:" -ForegroundColor Green
+    Write-Host "  .\smart-book-translator.bat" -ForegroundColor White
+    Write-Host "  or .\install-windows.ps1 (first-time install)" -ForegroundColor White
+    Write-Host ""
+  } catch {
+    Write-Host "[ERROR] Node.js was found but could not be executed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+  }
+} else {
+  Write-Host "[ERROR] Node.js not found in common install locations." -ForegroundColor Red
+  Write-Host ""
+  Write-Host "Install Node.js LTS from: https://nodejs.org/" -ForegroundColor Yellow
+  Write-Host "During installation, make sure 'Add to PATH' is enabled." -ForegroundColor Yellow
+  Write-Host "Then close and reopen PowerShell and try again." -ForegroundColor Yellow
+  Write-Host ""
+  exit 1
+}
+
+
 

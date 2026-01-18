@@ -250,7 +250,7 @@ npm run dev:frontend
 ```
 
 ### Access
-- **Frontend**: http://localhost:5173
+- **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:5000
 - **Health Check**: http://localhost:5000/api/health
 

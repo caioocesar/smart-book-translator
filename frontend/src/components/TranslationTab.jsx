@@ -3,14 +3,15 @@ import axios from 'axios';
 import { io } from 'socket.io-client';
 import { t } from '../utils/i18n.js';
 import DocumentInfoBox from './DocumentInfoBox.jsx';
+import LocalTranslationPanel from './LocalTranslationPanel.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 function TranslationTab({ settings }) {
   const [file, setFile] = useState(null);
   const [sourceLanguage, setSourceLanguage] = useState('en');
-  const [targetLanguage, setTargetLanguage] = useState('es');
-  const [apiProvider, setApiProvider] = useState('deepl');
+  const [targetLanguage, setTargetLanguage] = useState('pt');
+  const [apiProvider, setApiProvider] = useState('local'); // Default to Local (FREE)
   const [outputFormat, setOutputFormat] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [currentJob, setCurrentJob] = useState(null);
@@ -34,6 +35,17 @@ function TranslationTab({ settings }) {
   const [availableGlossaries, setAvailableGlossaries] = useState([]);
   const [selectedGlossaryIds, setSelectedGlossaryIds] = useState([]);
   const [useAllGlossaries, setUseAllGlossaries] = useState(true);
+  
+  // DeepL API options
+  const [deeplOptions, setDeeplOptions] = useState({
+    formality: settings.deepl_options?.formality || 'default',
+    split_sentences: settings.deepl_options?.split_sentences || '1',
+    preserve_formatting: settings.deepl_options?.preserve_formatting || '0',
+    tag_handling: settings.deepl_options?.tag_handling || 'html',
+    ignore_tags: settings.deepl_options?.ignore_tags || 'code,pre,script,style'
+  });
+
+  const isLocalProvider = apiProvider === 'local';
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -50,12 +62,24 @@ function TranslationTab({ settings }) {
 
   useEffect(() => {
     // Load saved API credentials from settings
-    if (settings[`${apiProvider}_api_key`]) {
-      setApiKey(settings[`${apiProvider}_api_key`]);
+    const savedApiKey = settings[`${apiProvider}_api_key`];
+    if (savedApiKey) {
+      setApiKey(savedApiKey);
+    } else {
+      // Clear API key if provider changed and no key exists for new provider
+      setApiKey('');
     }
     loadJobs();
     loadGlossaries();
   }, [apiProvider, settings, sourceLanguage, targetLanguage]);
+  
+  // Also update API key when settings change (e.g., after saving in Settings tab)
+  useEffect(() => {
+    const savedApiKey = settings[`${apiProvider}_api_key`];
+    if (savedApiKey && savedApiKey !== apiKey) {
+      setApiKey(savedApiKey);
+    }
+  }, [settings]);
 
   const loadGlossaries = async () => {
     try {
@@ -182,6 +206,10 @@ function TranslationTab({ settings }) {
   };
 
   const checkApiLimits = async () => {
+    if (isLocalProvider) {
+      // Local (LibreTranslate) doesn't have external API limits
+      return;
+    }
     if (apiProvider !== 'google' && !apiKey) {
       setError('Please enter API key to check limits');
       return;
@@ -231,6 +259,32 @@ function TranslationTab({ settings }) {
   }, []);
 
   const testApiConnection = async () => {
+    // Local LibreTranslate test (no API key)
+    if (apiProvider === 'local') {
+      setTestingConnection(true);
+      setConnectionTestResult(null);
+      try {
+        const response = await axios.post(`${API_URL}/api/local-translation/test`, {
+          text: 'Hello',
+          sourceLang: sourceLanguage,
+          targetLang: targetLanguage
+        });
+        setConnectionTestResult({
+          success: true,
+          message: '✓ LibreTranslate is available',
+          testTranslation: response.data?.result?.translatedText || response.data?.result?.translated_text || ''
+        });
+      } catch (err) {
+        setConnectionTestResult({
+          success: false,
+          message: `✗ ${err.response?.data?.error || err.message}`
+        });
+      } finally {
+        setTestingConnection(false);
+      }
+      return;
+    }
+
     // Google doesn't need an API key
     if (apiProvider === 'google' || apiProvider === 'google-translate') {
       setTestingConnection(true);
@@ -269,6 +323,14 @@ function TranslationTab({ settings }) {
       if (apiProvider === 'openai' || apiProvider === 'chatgpt') {
         apiOptions.model = openaiModel || settings.openai_model || 'gpt-3.5-turbo';
       }
+      // Add DeepL options if DeepL is selected
+      if (apiProvider === 'deepl') {
+        apiOptions.formality = deeplOptions.formality;
+        apiOptions.split_sentences = deeplOptions.split_sentences;
+        apiOptions.preserve_formatting = deeplOptions.preserve_formatting;
+        apiOptions.tag_handling = deeplOptions.tag_handling;
+        apiOptions.ignore_tags = deeplOptions.ignore_tags;
+      }
       
       const response = await axios.post(`${API_URL}/api/settings/test-api`, {
         provider: apiProvider,
@@ -297,7 +359,8 @@ function TranslationTab({ settings }) {
       return;
     }
     
-    if (apiProvider !== 'google' && !apiKey) {
+    // Local and Google don't need API keys
+    if (apiProvider !== 'google' && apiProvider !== 'local' && !apiKey) {
       setError('Please enter API key');
       return;
     }
@@ -322,6 +385,14 @@ function TranslationTab({ settings }) {
       // Override model if OpenAI/ChatGPT and model is set in translation tab
       if ((apiProvider === 'openai' || apiProvider === 'chatgpt') && openaiModel) {
         apiOptions.model = openaiModel;
+      }
+      // Add DeepL options if DeepL is selected
+      if (apiProvider === 'deepl') {
+        apiOptions.formality = deeplOptions.formality;
+        apiOptions.split_sentences = deeplOptions.split_sentences;
+        apiOptions.preserve_formatting = deeplOptions.preserve_formatting;
+        apiOptions.tag_handling = deeplOptions.tag_handling;
+        apiOptions.ignore_tags = deeplOptions.ignore_tags;
       }
       
       await axios.post(`${API_URL}/api/translation/translate/${jobId}`, {
@@ -368,6 +439,14 @@ function TranslationTab({ settings }) {
       const apiOptions = { ...(settings[`${apiProvider}_options`] || {}) };
       if (apiProvider === 'openai' || apiProvider === 'chatgpt') {
         apiOptions.model = openaiModel || settings.openai_model || 'gpt-3.5-turbo';
+      }
+      // Add DeepL options if DeepL is selected
+      if (apiProvider === 'deepl') {
+        apiOptions.formality = deeplOptions.formality;
+        apiOptions.split_sentences = deeplOptions.split_sentences;
+        apiOptions.preserve_formatting = deeplOptions.preserve_formatting;
+        apiOptions.tag_handling = deeplOptions.tag_handling;
+        apiOptions.ignore_tags = deeplOptions.ignore_tags;
       }
       
       await axios.post(`${API_URL}/api/translation/retry/${jobId}`, {
@@ -490,10 +569,11 @@ function TranslationTab({ settings }) {
             <label>{t('translationAPI')}</label>
             <div className="input-with-help">
               <select value={apiProvider} onChange={(e) => setApiProvider(e.target.value)}>
-                <option value="google">{t('providerGoogle')}</option>
-                <option value="deepl">{t('providerDeepL')}</option>
-                <option value="openai">{t('providerOpenAI')}</option>
-                <option value="chatgpt">{t('providerChatGPT')}</option>
+                <option value="local">🏠 Local (LibreTranslate) - FREE ⭐ RECOMMENDED</option>
+                <option value="google">{t('providerGoogle')} - Free (No API Key)</option>
+                <option value="deepl">{t('providerDeepL')} - Best Quality (Paid)</option>
+                <option value="openai">{t('providerOpenAI')} - AI-Powered (Paid)</option>
+                <option value="chatgpt">{t('providerChatGPT')} - AI-Powered (Paid)</option>
               </select>
               <button 
                 className="help-btn"
@@ -525,6 +605,120 @@ function TranslationTab({ settings }) {
                   <>Default: {settings.openai_model || 'gpt-3.5-turbo'}</>
                 )}
               </p>
+            </div>
+          )}
+
+          {/* DeepL API Options */}
+          {apiProvider === 'deepl' && (
+            <div className="deepl-options-section" style={{ 
+              border: '1px solid #e0e0e0', 
+              borderRadius: '8px', 
+              padding: '16px', 
+              marginTop: '8px',
+              backgroundColor: '#f9f9f9'
+            }}>
+              <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '1em', color: '#333' }}>
+                ⚙️ {t('deeplApiOptions') || 'DeepL API Options'}
+              </h4>
+              
+              <div className="form-group">
+                <label>
+                  <strong>{t('formality') || 'Translation Formality'}</strong>
+                  <span style={{ fontSize: '0.85em', color: '#666', marginLeft: '8px', fontWeight: 'normal' }}>
+                    ({t('formalityHelp') || 'How formal should the translation be?'})
+                  </span>
+                </label>
+                <select 
+                  value={deeplOptions.formality} 
+                  onChange={(e) => setDeeplOptions({...deeplOptions, formality: e.target.value})}
+                >
+                  <option value="default">Default - Use standard formality level (recommended)</option>
+                  <option value="less">Less Formal - More casual, natural, conversational tone</option>
+                  <option value="more">More Formal - Professional, formal, business tone</option>
+                  <option value="prefer_less">Prefer Less Formal - Mostly casual, formal only when necessary</option>
+                  <option value="prefer_more">Prefer More Formal - Mostly formal, casual only when necessary</option>
+                </select>
+                <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                  💡 <strong>Tip:</strong> Use "Less Formal" for books, stories, and casual content. Use "More Formal" for business documents. Works with: German, French, Italian, Japanese, Spanish, Dutch, Polish, Portuguese, Russian, Chinese.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <strong>{t('splitSentences') || 'Sentence Splitting'}</strong>
+                  <span style={{ fontSize: '0.85em', color: '#666', marginLeft: '8px', fontWeight: 'normal' }}>
+                    ({t('splitSentencesHelp') || 'How should DeepL break up your text?'})
+                  </span>
+                </label>
+                <select 
+                  value={deeplOptions.split_sentences} 
+                  onChange={(e) => setDeeplOptions({...deeplOptions, split_sentences: e.target.value})}
+                >
+                  <option value="1">Split on punctuation and newlines (Default - Best for most documents)</option>
+                  <option value="nonewlines">Split on punctuation only - Keep line breaks as they are (Good for poetry, code, structured text)</option>
+                  <option value="0">Don't split sentences - Keep everything exactly as written (Use for special formatting needs)</option>
+                </select>
+                <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                  💡 <strong>Tip:</strong> "Split on punctuation only" is recommended for EPUB/DOCX files to preserve paragraph structure. "Don't split" is rarely needed.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <strong>{t('preserveFormatting') || 'Preserve Original Formatting'}</strong>
+                  <span style={{ fontSize: '0.85em', color: '#666', marginLeft: '8px', fontWeight: 'normal' }}>
+                    ({t('preserveFormattingHelp') || 'Keep spacing and line breaks exactly as in original?'})
+                  </span>
+                </label>
+                <select 
+                  value={deeplOptions.preserve_formatting} 
+                  onChange={(e) => setDeeplOptions({...deeplOptions, preserve_formatting: e.target.value})}
+                >
+                  <option value="0">No - Let DeepL normalize formatting (Default - Usually better quality)</option>
+                  <option value="1">Yes - Keep original spacing and line breaks exactly as they are</option>
+                </select>
+                <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                  💡 <strong>Tip:</strong> Use "Yes" only if your document has special formatting that must be preserved exactly. For most books and documents, "No" gives better translation quality.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <strong>{t('tagHandling') || 'HTML/XML Tag Handling'}</strong>
+                  <span style={{ fontSize: '0.85em', color: '#666', marginLeft: '8px', fontWeight: 'normal' }}>
+                    ({t('tagHandlingHelp') || 'How should DeepL process HTML/XML tags in your document?'})
+                  </span>
+                </label>
+                <select 
+                  value={deeplOptions.tag_handling} 
+                  onChange={(e) => setDeeplOptions({...deeplOptions, tag_handling: e.target.value})}
+                >
+                  <option value="html">HTML - For EPUB, DOCX, and web content (Default - Recommended)</option>
+                  <option value="xml">XML - For XML documents only (Rarely needed)</option>
+                </select>
+                <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                  💡 <strong>Tip:</strong> EPUB and DOCX files are automatically detected and use HTML mode. You usually don't need to change this.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <strong>{t('ignoreTags') || 'Tags to Skip (Don\'t Translate)'}</strong>
+                  <span style={{ fontSize: '0.85em', color: '#666', marginLeft: '8px', fontWeight: 'normal' }}>
+                    ({t('ignoreTagsHelp') || 'Which HTML tags should DeepL leave untranslated?'})
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  value={deeplOptions.ignore_tags}
+                  onChange={(e) => setDeeplOptions({...deeplOptions, ignore_tags: e.target.value})}
+                  placeholder="code,pre,script,style"
+                  style={{ width: '100%' }}
+                />
+                <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                  💡 <strong>Tip:</strong> Enter tag names separated by commas (e.g., <code>code,pre,script,style</code>). This is useful if your document contains code blocks, scripts, or CSS that shouldn't be translated. Default: <code>code,pre,script,style</code>
+                </p>
+              </div>
             </div>
           )}
 
@@ -630,59 +824,70 @@ function TranslationTab({ settings }) {
             </div>
           )}
 
-          <div className="form-group full-width">
-            <label>{t('apiKey')} 🔐 {apiProvider === 'google' && <span className="free-badge">{t('noApiKey')}</span>}</label>
-            <div className="input-with-test">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value);
-                  setConnectionTestResult(null);
-                }}
-                placeholder={apiProvider === 'google' ? t('noApiKey') : t('apiKeyPlaceholder')}
-                disabled={apiProvider === 'google'}
-              />
-              <button 
-                onClick={testApiConnection}
-                className="btn-small btn-test"
-                disabled={(apiProvider !== 'google' && !apiKey) || testingConnection}
-              >
-                {testingConnection ? `⏳ ${t('testing')}...` : `🔌 ${t('testConnection')}`}
-              </button>
+          {/* Render Local Translation Panel */}
+          {apiProvider === 'local' && (
+            <div className="form-group full-width">
+              <LocalTranslationPanel />
             </div>
-            {connectionTestResult && (
-              <div className={`connection-test-result ${connectionTestResult.success ? 'success' : 'error'}`}>
-                {connectionTestResult.message}
-                {connectionTestResult.testTranslation && (
-                  <p className="test-translation">Test: "Hello" → "{connectionTestResult.testTranslation}"</p>
-                )}
+          )}
+
+          {!isLocalProvider && (
+            <div className="form-group full-width">
+              <label>{t('apiKey')} 🔐 {apiProvider === 'google' && <span className="free-badge">{t('noApiKey')}</span>}</label>
+              <div className="input-with-test">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    setConnectionTestResult(null);
+                  }}
+                  placeholder={apiProvider === 'google' ? t('noApiKey') : t('apiKeyPlaceholder')}
+                  disabled={apiProvider === 'google'}
+                />
+                <button 
+                  onClick={testApiConnection}
+                  className="btn-small btn-test"
+                  disabled={(apiProvider !== 'google' && !apiKey) || testingConnection}
+                >
+                  {testingConnection ? `⏳ ${t('testing')}...` : `🔌 ${t('testConnection')}`}
+                </button>
               </div>
-            )}
-            {apiProvider === 'google' ? (
-              <p className="security-note">🆓 Google Translate is free but may be rate-limited for heavy usage</p>
-            ) : (
-              <p className="security-note">🔒 Your API key is encrypted before storage and never shared</p>
-            )}
-          </div>
+              {connectionTestResult && (
+                <div className={`connection-test-result ${connectionTestResult.success ? 'success' : 'error'}`}>
+                  {connectionTestResult.message}
+                  {connectionTestResult.testTranslation && (
+                    <p className="test-translation">Test: "Hello" → "{connectionTestResult.testTranslation}"</p>
+                  )}
+                </div>
+              )}
+              {apiProvider === 'google' ? (
+                <p className="security-note">🆓 Google Translate is free but may be rate-limited for heavy usage</p>
+              ) : (
+                <p className="security-note">🔒 Your API key is encrypted before storage and never shared</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="action-buttons">
-          <button onClick={handleUpload} className="btn-primary" disabled={!file || (apiProvider !== 'google' && !apiKey)}>
+          <button onClick={handleUpload} className="btn-primary" disabled={!file || (apiProvider !== 'google' && apiProvider !== 'local' && !apiKey)}>
             🚀 {t('startTranslation')}
           </button>
-          <button 
-            onClick={checkApiLimits} 
-            className="btn-secondary btn-check-limits" 
-            disabled={(apiProvider !== 'google' && !apiKey) || refreshingLimits}
-          >
-            {refreshingLimits ? `⏳ ${t('checking')}...` : `📊 ${t('refreshLimits')}`}
-          </button>
+          {!isLocalProvider && (
+            <button 
+              onClick={checkApiLimits} 
+              className="btn-secondary btn-check-limits" 
+              disabled={(apiProvider !== 'google' && !apiKey) || refreshingLimits}
+            >
+              {refreshingLimits ? `⏳ ${t('checking')}...` : `📊 ${t('refreshLimits')}`}
+            </button>
+          )}
         </div>
 
         {error && <div className="error-message">{error}</div>}
 
-        {apiLimits && (
+        {!isLocalProvider && apiLimits && (
           <div className="api-limits">
             <div className="limits-header">
               <h4>API Usage Today - {apiLimits.provider}</h4>
@@ -718,7 +923,7 @@ function TranslationTab({ settings }) {
         )}
 
         {/* All API Limits Section - Only show if there's actual content */}
-        {(() => {
+        {!isLocalProvider && (() => {
           // Filter and count valid API limit cards
           const validCards = Object.entries(allApiLimits)
             .filter(([provider, limits]) => {
@@ -858,24 +1063,30 @@ function TranslationTab({ settings }) {
             <h3>API Authentication Guide</h3>
             
             <div className="api-guide">
-              <h4>DeepL API</h4>
-              <ol>
-                <li>Go to <a href="https://www.deepl.com/pro-api" target="_blank" rel="noopener noreferrer">deepl.com/pro-api</a></li>
-                <li>Sign up for a free or paid account</li>
-                <li>Navigate to your account settings</li>
-                <li>Copy your API authentication key</li>
-                <li>Paste it in the API Key field above</li>
-              </ol>
-
-              <h4>OpenAI API</h4>
-              <ol>
-                <li>Go to <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer">platform.openai.com</a></li>
-                <li>Sign in or create an account</li>
-                <li>Navigate to API Keys section</li>
-                <li>Click "Create new secret key"</li>
-                <li>Copy and save your API key securely</li>
-                <li>Paste it in the API Key field above</li>
-              </ol>
+              <h4>🏠 Local (LibreTranslate) - FREE ⭐ RECOMMENDED</h4>
+              <p className="free-option">
+                ✨ <strong>No API key needed!</strong> LibreTranslate runs on your computer for complete privacy and unlimited translations.
+              </p>
+              <p>
+                <strong>Perfect for:</strong>
+                <ul>
+                  <li>✅ <strong>100% Free</strong> - No API costs, unlimited translations</li>
+                  <li>✅ <strong>Complete Privacy</strong> - Your texts never leave your computer</li>
+                  <li>✅ <strong>No Rate Limits</strong> - Translate as much as you want</li>
+                  <li>✅ <strong>Offline Capable</strong> - Works without internet (after initial setup)</li>
+                </ul>
+              </p>
+              <p>
+                <strong>Setup:</strong>
+                <ol>
+                  <li>Install Docker Desktop from <a href="https://www.docker.com/get-started" target="_blank" rel="noopener noreferrer">docker.com</a></li>
+                  <li>The app will auto-start LibreTranslate when you launch it</li>
+                  <li>Or click "Start" in the Settings tab → Local Translation panel</li>
+                </ol>
+              </p>
+              <p className="warning-note">
+                ℹ️ <strong>Note:</strong> Translation quality is ~70% of DeepL, but constantly improving. Great for most use cases!
+              </p>
 
               <h4>Google Translate (Free)</h4>
               <p className="free-option">
@@ -893,6 +1104,25 @@ function TranslationTab({ settings }) {
                 ⚠️ <strong>Limitations:</strong> Google may rate-limit heavy usage. 
                 For large documents or frequent translations, consider paid APIs for better reliability.
               </p>
+
+              <h4>DeepL API (Paid)</h4>
+              <ol>
+                <li>Go to <a href="https://www.deepl.com/pro-api" target="_blank" rel="noopener noreferrer">deepl.com/pro-api</a></li>
+                <li>Sign up for a free or paid account</li>
+                <li>Navigate to your account settings</li>
+                <li>Copy your API authentication key</li>
+                <li>Paste it in the API Key field above</li>
+              </ol>
+
+              <h4>OpenAI API (Paid)</h4>
+              <ol>
+                <li>Go to <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer">platform.openai.com</a></li>
+                <li>Sign in or create an account</li>
+                <li>Navigate to API Keys section</li>
+                <li>Click "Create new secret key"</li>
+                <li>Copy and save your API key securely</li>
+                <li>Paste it in the API Key field above</li>
+              </ol>
 
               <p className="note">
                 <strong>Note:</strong> Your API keys are stored locally and never shared.
@@ -957,9 +1187,10 @@ function TranslationTab({ settings }) {
 
                 <h4>API Provider</h4>
                 <ul>
+                  <li><strong>🏠 Local (LibreTranslate) - RECOMMENDED:</strong> 100% free, unlimited, private. Runs on your computer. Quality ~70% of DeepL. No API key needed. Requires Docker.</li>
+                  <li><strong>Google Translate:</strong> Free, no API key needed. May be rate-limited for heavy usage.</li>
                   <li><strong>DeepL:</strong> Best quality for European languages. Free tier: 500k chars/month. Paid plans available.</li>
                   <li><strong>OpenAI/ChatGPT:</strong> Great for context-aware translations. Pay per token used.</li>
-                  <li><strong>Google Translate:</strong> Free, no API key needed. May be rate-limited for heavy usage.</li>
                 </ul>
 
                 <h4>API Key</h4>

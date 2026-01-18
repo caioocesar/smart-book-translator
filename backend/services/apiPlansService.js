@@ -439,6 +439,20 @@ class ApiPlansService {
       cost: 0,
       warning: 'May be blocked after heavy usage'
     });
+
+    // Local LibreTranslate (always an option if user wants fully local/free)
+    recommendations.push({
+      provider: 'local',
+      plan: 'libretranslate',
+      model: 'Local (LibreTranslate)',
+      reason: '100% free and runs on your machine (requires LibreTranslate; Docker recommended)',
+      estimatedChunks: Math.ceil(characterCount / 3000),
+      recommendedChunkSize: 3000,
+      supportsGlossary: true,
+      supportsHtml: false,
+      cost: 0,
+      warning: 'Quality may be lower than DeepL; requires local service running'
+    });
     
     // Sort by cost (free first), then by quality, but ensure DeepL is always visible
     recommendations.sort((a, b) => {

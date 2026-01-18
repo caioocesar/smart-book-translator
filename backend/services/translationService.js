@@ -20,12 +20,13 @@ class TranslationService {
 
   async translateWithDeepL(text, sourceLang, targetLang, glossaryTerms = [], html = null) {
     let usePaidEndpoint = false; // Declare outside try block for catch block access
+    let url = ''; // Declare outside try block for catch block access
     try {
       // Determine API endpoint based on API key (free vs paid)
       // Paid API keys are typically UUIDs (with dashes), free keys are shorter alphanumeric
       // If key looks like a UUID (has dashes), try paid endpoint first
       const isPaidKey = this.apiKey && this.apiKey.includes('-') && this.apiKey.length > 30;
-      let url = isPaidKey 
+      url = isPaidKey 
         ? 'https://api.deepl.com/v2/translate'
         : 'https://api-free.deepl.com/v2/translate';
       
@@ -127,38 +128,70 @@ class TranslationService {
         target_lang: normalizedTargetLang  // Use normalized language code
       };
       
+      // Use formality from options if provided, otherwise use default
+      // Formality is available for: DE, FR, IT, JA, ES, NL, PL, PT, RU, ZH
+      // Options: 'default', 'more', 'less', 'prefer_more', 'prefer_less'
+      if (this.options.formality) {
+        params.formality = this.options.formality;
+        console.log(`📝 Using formality setting: ${this.options.formality}`);
+      }
+      
+      // Use split_sentences from options if provided
+      // Options: '0' (no splitting), '1' (split on punctuation and newlines), 'nonewlines' (split on punctuation only)
+      if (this.options.split_sentences !== undefined) {
+        params.split_sentences = this.options.split_sentences;
+        console.log(`📝 Using split_sentences setting: ${this.options.split_sentences}`);
+      }
+      
+      // Use preserve_formatting from options if provided
+      // Options: '0' (normalize), '1' (preserve)
+      if (this.options.preserve_formatting !== undefined) {
+        params.preserve_formatting = this.options.preserve_formatting;
+        console.log(`📝 Using preserve_formatting setting: ${this.options.preserve_formatting}`);
+      }
+      
       // If using HTML, configure DeepL to preserve formatting
       // Reference: https://developers.deepl.com/docs/xml-and-html-handling/html
       if (useHtml) {
-        params.tag_handling = 'html'; // Use 'html' for HTML content (not 'xml')
-        params.split_sentences = 'nonewlines'; // Preserve HTML structure, split on punctuation only
-        params.ignore_tags = 'code,pre,script,style'; // Don't translate code blocks and scripts
+        // Use tag_handling from options if provided, otherwise default to 'html'
+        params.tag_handling = this.options.tag_handling || 'html';
+        
+        // Use split_sentences from options if provided, otherwise default to 'nonewlines' for HTML
+        if (!this.options.split_sentences) {
+          params.split_sentences = 'nonewlines'; // Preserve HTML structure, split on punctuation only
+        }
+        
+        // Use ignore_tags from options if provided, otherwise use default
+        params.ignore_tags = this.options.ignore_tags || 'code,pre,script,style'; // Don't translate code blocks and scripts
+        
+        console.log(`📄 HTML mode: tag_handling=${params.tag_handling}, split_sentences=${params.split_sentences}, ignore_tags=${params.ignore_tags}`);
       }
       
-      // Create HTTP agents with keep-alive for better connection reuse
-      const isHttps = url.startsWith('https://');
-      const agent = isHttps 
-        ? new https.Agent({
-            keepAlive: true,
-            keepAliveMsecs: 1000,
-            maxSockets: 50,
-            maxFreeSockets: 10,
-            timeout: 60000
-          })
-        : new http.Agent({
-            keepAlive: true,
-            keepAliveMsecs: 1000,
-            maxSockets: 50,
-            maxFreeSockets: 10,
-            timeout: 60000
-          });
+      // Helper function to create a fresh HTTP agent
+      // This is important for retries after network errors to avoid stale connections
+      const createAgent = (useKeepAlive = true) => {
+        const isHttps = url.startsWith('https://');
+        const agentOptions = {
+          keepAlive: useKeepAlive,
+          keepAliveMsecs: useKeepAlive ? 1000 : 0,
+          maxSockets: 50,
+          maxFreeSockets: useKeepAlive ? 10 : 0,
+          timeout: 90000 // 90 second timeout (increased for better reliability)
+        };
+        return isHttps 
+          ? new https.Agent(agentOptions)
+          : new http.Agent(agentOptions);
+      };
+      
+      // Create initial agent with keep-alive for connection reuse
+      let agent = createAgent(true);
       
       let response;
       try {
         // Configure axios with better timeout and connection settings
         response = await axios.post(url, null, { 
           params,
-          timeout: 60000, // 60 second timeout (increased from default)
+          timeout: 90000, // 90 second timeout (increased for better reliability)
           headers: {
             'User-Agent': 'SmartBookTranslator/1.0',
             'Connection': 'keep-alive'
@@ -167,7 +200,7 @@ class TranslationService {
           validateStatus: function (status) {
             return status < 500; // Don't throw for 4xx errors, only 5xx
           },
-          [isHttps ? 'httpsAgent' : 'httpAgent']: agent
+          [url.startsWith('https://') ? 'httpsAgent' : 'httpAgent']: agent
         });
       } catch (firstError) {
         // If we get 403 on free endpoint, try paid endpoint
@@ -176,18 +209,12 @@ class TranslationService {
           url = 'https://api.deepl.com/v2/translate';
           usePaidEndpoint = true;
           try {
-            // Use same agent configuration for paid endpoint
-            const paidAgent = new https.Agent({
-              keepAlive: true,
-              keepAliveMsecs: 1000,
-              maxSockets: 50,
-              maxFreeSockets: 10,
-              timeout: 60000
-            });
+            // Create fresh agent for paid endpoint
+            const paidAgent = createAgent(true);
             
             response = await axios.post(url, null, { 
               params,
-              timeout: 60000,
+              timeout: 90000,
               headers: {
                 'User-Agent': 'SmartBookTranslator/1.0',
                 'Connection': 'keep-alive'
@@ -262,6 +289,20 @@ class TranslationService {
       if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || 
           error.message.includes('socket hang up') || error.message.includes('timeout') ||
           error.message.includes('ECONNREFUSED') || error.message.includes('network')) {
+        
+        // Enhanced logging for network errors
+        console.error(`🔴 Network Error Details:`);
+        console.error(`   Code: ${error.code || 'N/A'}`);
+        console.error(`   Message: ${error.message}`);
+        console.error(`   URL: ${url}`);
+        console.error(`   Using HTML: ${useHtml}`);
+        console.error(`   Text Length: ${text.length}`);
+        console.error(`   This may be due to:`);
+        console.error(`   - DeepL server temporarily closing connections`);
+        console.error(`   - Network instability`);
+        console.error(`   - Rate limiting at connection level`);
+        console.error(`   - Firewall/proxy interference`);
+        
         throw new Error('Network error: Connection failed. Please check your internet connection and try again.');
       }
       

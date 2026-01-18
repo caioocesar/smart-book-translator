@@ -40,7 +40,7 @@ if lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
         echo "Please open http://localhost:$FRONTEND_PORT in your browser"
     else
         # Try common ports
-        xdg-open http://localhost:3002 2>/dev/null || \
+        xdg-open http://localhost:3000 2>/dev/null || \
         xdg-open http://localhost:5173 2>/dev/null || \
         xdg-open http://localhost:3001 2>/dev/null || \
         echo "Please check which port the frontend is running on"

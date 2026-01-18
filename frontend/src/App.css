@@ -1751,11 +1751,111 @@
 
 .chunk-pending-info {
   margin-top: 0.5rem;
-  padding: 0.5rem;
-  background: #fff3cd;
-  border-radius: 6px;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+  border-radius: 8px;
   font-size: 0.85rem;
   color: #856404;
+  border-left: 3px solid #ffc107;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.pending-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.pending-icon {
+  font-size: 1.1rem;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.pending-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.pending-time,
+.pending-queue,
+.pending-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.pending-time strong {
+  color: #fd7e14;
+  font-weight: 600;
+}
+
+.processing-info-card {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border-radius: 10px;
+  border-left: 4px solid #2196f3;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+}
+
+.processing-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  color: #1565c0;
+}
+
+.processing-icon {
+  font-size: 1.2rem;
+  animation: spin 3s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.processing-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.processing-stats .stat-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.processing-stats .stat-label {
+  color: #424242;
+  font-weight: 500;
+}
+
+.processing-stats .stat-value {
+  color: #1976d2;
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 /* Responsive chunks grid */

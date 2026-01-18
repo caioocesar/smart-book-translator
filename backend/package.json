@@ -32,6 +32,9 @@
     "csv-stringify": "^6.4.6",
     "socket.io": "^4.8.1"
   },
+  "optionalDependencies": {
+    "natural": "^6.10.0"
+  },
   "engines": {
     "node": ">=18.0.0"
   }
