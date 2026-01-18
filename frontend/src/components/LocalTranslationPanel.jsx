@@ -20,24 +20,31 @@ function LocalTranslationPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [autoStart, setAutoStart] = useState(true);
   const [autoStarting, setAutoStarting] = useState(false);
+  const [resources, setResources] = useState(null);
+  const [showResources, setShowResources] = useState(false);
 
   useEffect(() => {
     checkStatus();
     loadConfig();
+    loadResources();
     
-    // Quick polling for first 30 seconds (detect auto-start)
-    const quickInterval = setInterval(checkStatus, 2000); // Every 2s
+    // Quick polling for first 60 seconds (detect auto-start)
+    const quickInterval = setInterval(checkStatus, 3000); // Every 3s (reduced from 2s)
     const quickTimeout = setTimeout(() => {
       clearInterval(quickInterval);
       setAutoStarting(false);
-    }, 30000); // Stop after 30s
+    }, 60000); // Stop after 60s
     
     // Regular polling after that
-    const regularInterval = setInterval(checkStatus, 10000); // Every 10s
+    const regularInterval = setInterval(checkStatus, 30000); // Every 30s (reduced from 10s)
+    
+    // Resource monitoring (every 15 seconds - reduced from 5s)
+    const resourceInterval = setInterval(loadResources, 15000);
     
     return () => {
       clearInterval(quickInterval);
       clearInterval(regularInterval);
+      clearInterval(resourceInterval);
       clearTimeout(quickTimeout);
     };
   }, []);
@@ -110,6 +117,17 @@ function LocalTranslationPanel() {
       setStatus({ running: false, error: error.message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadResources = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/local-translation/resources`);
+      const data = await response.json();
+      setResources(data);
+    } catch (error) {
+      // Non-fatal
+      console.warn('Failed to load resources:', error);
     }
   };
 
@@ -286,6 +304,51 @@ function LocalTranslationPanel() {
               <>
                 <p><strong>Languages:</strong> {status?.languageCount || 0} language pairs</p>
                 <p><strong>Last Check:</strong> {status?.lastCheck ? new Date(status.lastCheck).toLocaleTimeString() : 'Never'}</p>
+                
+                {/* Resource Usage */}
+                {resources && (
+                  <div style={{ marginTop: '12px', padding: '8px', background: '#f0f8ff', borderRadius: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <strong>💻 Resource Usage</strong>
+                      <button 
+                        className="btn-small"
+                        onClick={() => setShowResources(!showResources)}
+                        style={{ padding: '2px 8px', fontSize: '0.8em' }}
+                      >
+                        {showResources ? '▼ Hide' : '▶ Show'}
+                      </button>
+                    </div>
+                    
+                    {showResources && (
+                      <div style={{ fontSize: '0.9em', marginTop: '8px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <div>
+                            <strong>CPU:</strong> {resources.system.cpu.usage}%
+                          </div>
+                          <div>
+                            <strong>RAM:</strong> {resources.system.memory.usagePercent}%
+                          </div>
+                          <div>
+                            <strong>Cores:</strong> {resources.system.cpu.cores}
+                          </div>
+                          <div>
+                            <strong>Memory:</strong> {(resources.system.memory.total / (1024 * 1024 * 1024)).toFixed(1)} GB
+                          </div>
+                        </div>
+                        
+                        {resources.container && (
+                          <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #ddd' }}>
+                            <strong>LibreTranslate Container:</strong>
+                            <div style={{ marginTop: '4px' }}>
+                              <div>CPU: {resources.container.cpu}</div>
+                              <div>Memory: {resources.container.memory}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
             {!isRunning && (

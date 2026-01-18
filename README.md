@@ -553,6 +553,27 @@ rm backend/data/translator.db
 4. Check API usage limits
 5. Try smaller chunk size
 
+### High WSL Memory Usage (Windows)
+
+**Problem:** `vmmemWSL` consuming 10GB+ RAM after closing the application.
+
+**Quick Fix:**
+```powershell
+# Stop Docker containers and free WSL memory
+.\stop-docker.ps1
+
+# Or complete cleanup (stops everything)
+.\stop-all.ps1
+```
+
+**Permanent Fix:**
+1. Copy `.wslconfig` to `C:\Users\YourUsername\.wslconfig`
+2. Set memory limit (e.g., `memory=4GB` for 16GB RAM systems)
+3. Run `wsl --shutdown`
+4. Restart Docker Desktop
+
+**See:** [WSL_MEMORY_FIX.md](WSL_MEMORY_FIX.md) for detailed guide.
+
 ## 📝 License
 
 This project is provided as-is for personal use only. See copyright notice above.

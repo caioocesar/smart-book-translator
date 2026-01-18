@@ -2,6 +2,7 @@ import axios from 'axios';
 import GlossaryProcessor from './glossaryProcessor.js';
 import SentenceBatcher from './sentenceBatcher.js';
 import libreTranslateManager from './libreTranslateManager.js';
+import ollamaService from './ollamaService.js';
 import Logger from '../utils/logger.js';
 import { LocalTranslationError } from '../utils/errors.js';
 import Settings from '../models/Settings.js';
@@ -63,9 +64,10 @@ class LocalTranslationService {
    * @param {string} sourceLang - Source language code
    * @param {string} targetLang - Target language code
    * @param {Array} glossaryTerms - Optional glossary terms
+   * @param {Object} options - Additional options (htmlMode, useLLM, etc.)
    * @returns {Promise<Object>} Translation result
    */
-  async translate(text, sourceLang, targetLang, glossaryTerms = []) {
+  async translate(text, sourceLang, targetLang, glossaryTerms = [], options = {}) {
     const startTime = Date.now();
 
     try {
@@ -104,13 +106,17 @@ class LocalTranslationService {
         const batchText = batchStrings[i];
         
         try {
+          // Determine format based on options
+          const htmlMode = options.htmlMode || Settings.get('localTranslationHtmlMode') || false;
+          const format = htmlMode ? 'html' : 'text';
+
           const response = await axios.post(
             `${this.url}/translate`,
             {
               q: batchText,
               source: this.normalizeLanguageCode(sourceLang),
               target: this.normalizeLanguageCode(targetLang),
-              format: 'text'
+              format: format
             },
             {
               timeout: this.options.timeout,
@@ -158,6 +164,49 @@ class LocalTranslationService {
         glossaryStats = postProcessResult.stats;
       }
 
+      // Step 6: Optional LLM post-processing
+      let llmStats = null;
+      const useLLM = options.useLLM || Settings.get('ollamaEnabled') || false;
+      
+      if (useLLM) {
+        try {
+          const ollamaRunning = await ollamaService.isRunning();
+          
+          if (ollamaRunning) {
+            console.log('🤖 Applying LLM enhancement...');
+            const llmStartTime = Date.now();
+            
+            const llmResult = await ollamaService.processTranslation(translatedText, {
+              sourceLang,
+              targetLang,
+              formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
+              improveStructure: options.improveStructure !== false && (Settings.get('ollamaTextStructure') !== false),
+              verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
+              glossaryTerms: glossaryTerms,
+              model: options.ollamaModel || Settings.get('ollamaModel') || null
+            });
+            
+            if (llmResult.success) {
+              translatedText = llmResult.enhancedText;
+              llmStats = {
+                duration: Date.now() - llmStartTime,
+                model: llmResult.model,
+                changes: llmResult.changes
+              };
+              console.log(`✓ LLM enhancement completed in ${llmStats.duration}ms`);
+            } else {
+              console.warn('⚠️ LLM enhancement failed:', llmResult.error);
+            }
+          } else {
+            console.warn('⚠️ LLM enhancement requested but Ollama is not running');
+          }
+        } catch (llmError) {
+          // Non-fatal: continue with non-enhanced translation
+          Logger.logError('localTranslation', 'LLM enhancement failed', llmError, {});
+          console.warn('⚠️ LLM enhancement error:', llmError.message);
+        }
+      }
+
       // Update stats
       const endTime = Date.now();
       const duration = endTime - startTime;
@@ -186,7 +235,8 @@ class LocalTranslationService {
         duration,
         glossaryStats,
         batchStats,
-        provider: 'local (LibreTranslate)'
+        llmStats,
+        provider: 'local (LibreTranslate)' + (llmStats ? ' + LLM' : '')
       };
 
     } catch (error) {

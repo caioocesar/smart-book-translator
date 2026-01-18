@@ -657,16 +657,19 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         let translatedHtml = null;
 
         if (providerLower === 'local') {
-          // Local (LibreTranslate) currently translates plain text only
+          // Local (LibreTranslate) with glossary support
           const localGlossaryTerms = glossaryTerms === null
             ? Glossary.getAll(job.source_language, job.target_language)
             : (Array.isArray(glossaryTerms) ? glossaryTerms : []);
+
+          console.log(`📚 Passing ${localGlossaryTerms.length} glossary terms to local translation`);
 
           result = await localTranslationService.translate(
             chunk.source_text,
             job.source_language,
             job.target_language,
-            localGlossaryTerms
+            localGlossaryTerms,
+            apiOptions // Pass options including htmlMode, useLLM, formality, etc.
           );
           finalTranslatedText = result?.translatedText || chunk.source_text;
         } else {

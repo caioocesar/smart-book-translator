@@ -34,6 +34,7 @@ const translations = {
 
     // Local (LibreTranslate)
     localTranslationTitle: 'Local Translation (LibreTranslate)',
+    ollamaTitle: 'LLM Enhancement Layer (Ollama)',
     libreTranslateUrl: 'LibreTranslate URL',
     showAdvanced: 'Show advanced',
     hideAdvanced: 'Hide advanced',
@@ -252,6 +253,7 @@ const translations = {
 
     // Local (LibreTranslate)
     localTranslationTitle: 'Tradução Local (LibreTranslate)',
+    ollamaTitle: 'Camada de Melhoria LLM (Ollama)',
     libreTranslateUrl: 'URL do LibreTranslate',
     showAdvanced: 'Mostrar avançado',
     hideAdvanced: 'Ocultar avançado',
@@ -470,6 +472,7 @@ const translations = {
 
     // Local (LibreTranslate)
     localTranslationTitle: 'Traducción Local (LibreTranslate)',
+    ollamaTitle: 'Capa de Mejora LLM (Ollama)',
     libreTranslateUrl: 'URL de LibreTranslate',
     showAdvanced: 'Mostrar avanzado',
     hideAdvanced: 'Ocultar avanzado',

@@ -68,7 +68,7 @@ class LibreTranslateManager {
     try {
       const baseUrl = this.resolveUrl(urlOverride);
       const response = await axios.get(`${baseUrl}/languages`, {
-        timeout: 5000
+        timeout: 15000 // Increased from 5s to 15s for slower systems
       });
 
       this.status = 'running';

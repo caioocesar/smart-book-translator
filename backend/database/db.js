@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import initSqlJs from 'sql.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -13,10 +13,76 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const dbPath = path.join(dataDir, 'translator.db');
-const db = new Database(dbPath);
 
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
+// Initialize SQL.js
+const SQL = await initSqlJs();
+
+// Load or create database
+let sqlDb;
+if (fs.existsSync(dbPath)) {
+  const buffer = fs.readFileSync(dbPath);
+  sqlDb = new SQL.Database(buffer);
+} else {
+  sqlDb = new SQL.Database();
+}
+
+// Save database to disk
+function saveDatabase() {
+  const data = sqlDb.export();
+  const buffer = Buffer.from(data);
+  fs.writeFileSync(dbPath, buffer);
+}
+
+// Wrapper class to provide better-sqlite3-like API
+class DatabaseWrapper {
+  constructor(database) {
+    this.db = database;
+  }
+
+  exec(sql) {
+    this.db.run(sql);
+    saveDatabase();
+  }
+
+  prepare(sql) {
+    const self = this;
+    return {
+      run(...params) {
+        self.db.run(sql, params);
+        saveDatabase();
+        return { changes: self.db.getRowsModified() };
+      },
+      get(...params) {
+        const stmt = self.db.prepare(sql);
+        stmt.bind(params);
+        if (stmt.step()) {
+          const result = stmt.getAsObject();
+          stmt.free();
+          return result;
+        }
+        stmt.free();
+        return undefined;
+      },
+      all(...params) {
+        const results = [];
+        const stmt = self.db.prepare(sql);
+        stmt.bind(params);
+        while (stmt.step()) {
+          results.push(stmt.getAsObject());
+        }
+        stmt.free();
+        return results;
+      }
+    };
+  }
+
+  pragma(pragma) {
+    // sql.js doesn't need pragma for foreign keys, it's always enabled
+    return this;
+  }
+}
+
+const db = new DatabaseWrapper(sqlDb);
 
 // Initialize database schema
 function initDatabase() {

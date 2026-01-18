@@ -4,6 +4,7 @@ import { io } from 'socket.io-client';
 import { t } from '../utils/i18n.js';
 import DocumentInfoBox from './DocumentInfoBox.jsx';
 import LocalTranslationPanel from './LocalTranslationPanel.jsx';
+import OllamaPanel from './OllamaPanel.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -35,6 +36,15 @@ function TranslationTab({ settings }) {
   const [availableGlossaries, setAvailableGlossaries] = useState([]);
   const [selectedGlossaryIds, setSelectedGlossaryIds] = useState([]);
   const [useAllGlossaries, setUseAllGlossaries] = useState(true);
+  
+  // LLM Layer options (Ollama)
+  const [useLLM, setUseLLM] = useState(false);
+  const [llmFormality, setLlmFormality] = useState('neutral'); // 'informal', 'neutral', 'formal'
+  const [llmImproveStructure, setLlmImproveStructure] = useState(true);
+  const [llmVerifyGlossary, setLlmVerifyGlossary] = useState(false);
+  
+  // HTML formatting option
+  const [htmlMode, setHtmlMode] = useState(false);
   
   // DeepL API options
   const [deeplOptions, setDeeplOptions] = useState({
@@ -394,6 +404,14 @@ function TranslationTab({ settings }) {
         apiOptions.tag_handling = deeplOptions.tag_handling;
         apiOptions.ignore_tags = deeplOptions.ignore_tags;
       }
+      // Add local translation options (HTML mode, LLM layer)
+      if (apiProvider === 'local') {
+        apiOptions.htmlMode = htmlMode;
+        apiOptions.useLLM = useLLM;
+        apiOptions.formality = llmFormality;
+        apiOptions.improveStructure = llmImproveStructure;
+        apiOptions.verifyGlossary = llmVerifyGlossary;
+      }
       
       await axios.post(`${API_URL}/api/translation/translate/${jobId}`, {
         apiKey,
@@ -566,10 +584,13 @@ function TranslationTab({ settings }) {
           </div>
 
           <div className="form-group">
-            <label>{t('translationAPI')}</label>
+            <label>
+              {t('translationAPI')}
+              {apiProvider === 'local' && <span className="recommended-badge" title="Recommended for privacy and unlimited usage">⭐ RECOMMENDED</span>}
+            </label>
             <div className="input-with-help">
-              <select value={apiProvider} onChange={(e) => setApiProvider(e.target.value)}>
-                <option value="local">🏠 Local (LibreTranslate) - FREE ⭐ RECOMMENDED</option>
+              <select value={apiProvider} onChange={(e) => setApiProvider(e.target.value)} className="api-provider-select">
+                <option value="local">⭐ Local (LibreTranslate) - FREE & PRIVATE</option>
                 <option value="google">{t('providerGoogle')} - Free (No API Key)</option>
                 <option value="deepl">{t('providerDeepL')} - Best Quality (Paid)</option>
                 <option value="openai">{t('providerOpenAI')} - AI-Powered (Paid)</option>
@@ -828,6 +849,156 @@ function TranslationTab({ settings }) {
           {apiProvider === 'local' && (
             <div className="form-group full-width">
               <LocalTranslationPanel />
+            </div>
+          )}
+
+          {/* HTML Formatting Option (Local only) */}
+          {apiProvider === 'local' && (
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={htmlMode}
+                  onChange={(e) => setHtmlMode(e.target.checked)}
+                />
+                <span>📄 Preserve Formatting (HTML Mode)</span>
+              </label>
+              <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
+                Uses HTML mode to preserve text formatting like bold, italic, etc. Useful for EPUB and DOCX files.
+              </p>
+            </div>
+          )}
+
+          {/* LLM Enhancement Layer (Local only) */}
+          {apiProvider === 'local' && (
+            <div className="form-group full-width">
+              <div style={{ 
+                border: '2px solid #667eea', 
+                borderRadius: '12px', 
+                padding: '16px', 
+                backgroundColor: '#f8f9ff'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={useLLM}
+                      onChange={(e) => setUseLLM(e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    <span style={{ fontSize: '1.1em', fontWeight: 600 }}>🤖 Use LLM Enhancement Layer</span>
+                  </label>
+                  <span style={{ 
+                    padding: '4px 8px', 
+                    background: '#667eea', 
+                    color: 'white', 
+                    borderRadius: '4px', 
+                    fontSize: '0.75em',
+                    fontWeight: 600
+                  }}>
+                    BETA
+                  </span>
+                </div>
+
+                <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '12px' }}>
+                  Enhance translations with AI-powered post-processing: formality adjustment, text structure improvements, and glossary verification.
+                </p>
+
+                {useLLM && (
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '12px',
+                    padding: '12px',
+                    background: 'white',
+                    borderRadius: '8px'
+                  }}>
+                    {/* Formality Control */}
+                    <div>
+                      <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>
+                        📊 Translation Formality
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {['informal', 'neutral', 'formal'].map(level => (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() => setLlmFormality(level)}
+                            style={{
+                              padding: '8px 16px',
+                              border: llmFormality === level ? '2px solid #667eea' : '1px solid #ddd',
+                              background: llmFormality === level ? '#e8eaff' : 'white',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontWeight: llmFormality === level ? 600 : 400,
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {level === 'informal' && '😊 Informal'}
+                            {level === 'neutral' && '⚖️ Neutral'}
+                            {level === 'formal' && '🎩 Formal'}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: '0.8em', color: '#666', marginTop: '4px' }}>
+                        {llmFormality === 'informal' && 'Casual, conversational tone'}
+                        {llmFormality === 'neutral' && 'Balanced, standard tone (recommended)'}
+                        {llmFormality === 'formal' && 'Professional, formal tone'}
+                      </p>
+                    </div>
+
+                    {/* Text Structure Improvements */}
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={llmImproveStructure}
+                          onChange={(e) => setLlmImproveStructure(e.target.checked)}
+                        />
+                        <span style={{ fontWeight: 600 }}>✨ Improve Text Structure</span>
+                      </label>
+                      <p style={{ fontSize: '0.8em', color: '#666', marginLeft: '28px', marginTop: '4px' }}>
+                        Enhance cohesion, coherence, grammar, and natural language flow
+                      </p>
+                    </div>
+
+                    {/* Glossary Verification */}
+                    {availableGlossaries.length > 0 && (
+                      <div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={llmVerifyGlossary}
+                            onChange={(e) => setLlmVerifyGlossary(e.target.checked)}
+                          />
+                          <span style={{ fontWeight: 600 }}>📚 Verify Glossary Terms</span>
+                        </label>
+                        <p style={{ fontSize: '0.8em', color: '#666', marginLeft: '28px', marginTop: '4px' }}>
+                          Double-check that glossary terms are correctly translated ({availableGlossaries.length} terms)
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Warning about processing time */}
+                    <div style={{ 
+                      padding: '8px 12px', 
+                      background: '#fff3cd', 
+                      border: '1px solid #ffc107',
+                      borderRadius: '6px',
+                      fontSize: '0.85em'
+                    }}>
+                      <strong>⚠️ Note:</strong> LLM enhancement adds processing time (~2-20 seconds per page depending on your hardware).
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Ollama Panel (Local only, shown when LLM is enabled) */}
+          {apiProvider === 'local' && useLLM && (
+            <div className="form-group full-width">
+              <OllamaPanel />
             </div>
           )}
 

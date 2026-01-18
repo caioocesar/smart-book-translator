@@ -1,0 +1,43 @@
+# WSL2 Configuration File
+# This file limits WSL2 memory usage to prevent excessive RAM consumption
+# Place this file in your Windows user directory: C:\Users\YourUsername\.wslconfig
+# Or keep it in the project root and copy it manually
+
+# Maximum amount of memory WSL2 can use (in GB)
+# Adjust based on your system RAM:
+# - 8GB total RAM: use 2-3GB
+# - 16GB total RAM: use 4-6GB  
+# - 32GB+ total RAM: use 8-12GB
+memory=4GB
+
+# Number of processors WSL2 can use
+# Leave commented to use all available cores, or set a specific number
+# processors=4
+
+# Enable swap file (helps prevent OOM errors)
+# Size in GB
+swap=2GB
+
+# Swap file location (optional, defaults to %USERPROFILE%\AppData\Local\Temp\swap.vhdx)
+# swapfile=C:\\temp\\wsl-swap.vhdx
+
+# Enable nested virtualization (for Docker-in-Docker scenarios)
+# nestedVirtualization=false
+
+# Enable page reporting (helps free memory back to Windows)
+# pageReporting=true
+
+# Enable kernel debugging (only for development)
+# kernelCommandLine=debug
+
+# Enable DNS tunneling (may improve network performance)
+# dnsTunneling=true
+
+# Enable firewall (Windows Firewall integration)
+# firewall=true
+
+# Enable auto proxy (Windows proxy settings)
+# autoProxy=true
+
+# Enable systemd (for systemd support in WSL2)
+# systemd=false

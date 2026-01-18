@@ -18,7 +18,12 @@
     "electron:dev": "npm run build:frontend && cd electron && npm start",
     "electron:build": "npm run build:frontend && cd electron && npm run dist",
     "electron:build:win": "npm run build:frontend && cd electron && npm run dist:win",
-    "electron:build:linux": "npm run build:frontend && cd electron && npm run dist:linux"
+    "electron:build:linux": "npm run build:frontend && cd electron && npm run dist:linux",
+    "build:installer:win": "npm run build:frontend && cd electron && npm run dist:win",
+    "build:installer:win:portable": "npm run build:frontend && cd electron && npm run dist:win:portable",
+    "build:installer:linux": "npm run build:frontend && cd electron && npm run dist:linux",
+    "build:installer:all": "npm run build:frontend && cd electron && npm run dist:all",
+    "setup:ollama": "node scripts/setup-ollama-model.js"
   },
   "keywords": [
     "translator",

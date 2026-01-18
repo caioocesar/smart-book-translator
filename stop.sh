@@ -35,6 +35,32 @@ lsof -ti:5173 | xargs kill -9 2>/dev/null && print_success "Stopped frontend on 
 lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 lsof -ti:3002 | xargs kill -9 2>/dev/null || true
 
+# Stop Docker containers (LibreTranslate)
+echo ""
+echo "Stopping Docker containers..."
+if command -v docker &> /dev/null; then
+    # Stop LibreTranslate containers
+    docker ps -a --filter "ancestor=libretranslate/libretranslate" --format "{{.ID}}" | while read -r id; do
+        if [ ! -z "$id" ]; then
+            docker stop "$id" 2>/dev/null && docker rm "$id" 2>/dev/null && print_success "Stopped LibreTranslate container: $id"
+        fi
+    done
+    
+    # Stop containers by name
+    docker ps -a --filter "name=libretranslate" --format "{{.ID}}" | while read -r id; do
+        if [ ! -z "$id" ]; then
+            docker stop "$id" 2>/dev/null && docker rm "$id" 2>/dev/null && print_success "Stopped container: $id"
+        fi
+    done
+    
+    # Stop docker-compose if docker-compose.yml exists
+    if [ -f "docker-compose.yml" ]; then
+        docker-compose down 2>/dev/null && print_success "Stopped docker-compose services" || true
+    fi
+else
+    echo "  ℹ Docker not found, skipping Docker cleanup"
+fi
+
 # Clean up log files
 rm -f backend.log frontend.log
 

@@ -16,6 +16,7 @@ import termLookupRoutes from './routes/termLookup.js';
 import apiPlansRoutes from './routes/apiPlans.js';
 import documentAnalysisRoutes from './routes/documentAnalysis.js';
 import localTranslationRoutes from './routes/localTranslation.js';
+import ollamaRoutes from './routes/ollama.js';
 
 // Import error handling middleware
 import errorHandler, { notFoundHandler, setupGlobalErrorHandlers } from './middleware/errorHandler.js';
@@ -127,6 +128,7 @@ app.use('/api/term-lookup', termLookupRoutes);
 app.use('/api/plans', apiPlansRoutes);
 app.use('/api/document', documentAnalysisRoutes);
 app.use('/api/local-translation', localTranslationRoutes);
+app.use('/api/ollama', ollamaRoutes);
 
 // Port info endpoint
 app.get('/api/port-info', (req, res) => {
@@ -241,6 +243,9 @@ async function startServer() {
 
         // Auto-start LibreTranslate if enabled
         autoStartLibreTranslate();
+        
+        // Auto-start Ollama if enabled
+        autoStartOllama();
       });
       return;
     }
@@ -301,26 +306,163 @@ async function autoStartLibreTranslate() {
       console.log(`🧹 Found ${existingContainers.length} existing LibreTranslate container(s), cleaning up...`);
     }
 
-    // Start LibreTranslate
+    // Start LibreTranslate with retries
     console.log('🚀 Auto-starting LibreTranslate...');
     console.log('   ⏳ This may take 10-30 seconds on first run (downloading Docker image)');
     console.log('   ⏳ Subsequent starts will be much faster');
     
-    const result = await libreTranslateManager.startLibreTranslate();
+    const maxRetries = 3;
+    let lastError = null;
+    let lastResult = null;
     
-    if (result.success) {
-      console.log('✅ LibreTranslate started successfully!');
-      console.log(`   📍 Running at: ${libreTranslateManager.getEffectiveUrl()}`);
-      console.log(`   🌍 Available languages: ${result.languageCount || 'checking...'}`);
-    } else {
-      console.log(`⚠️  Failed to auto-start LibreTranslate`);
-      console.log(`   Error: ${result.message}`);
-      console.log('   💡 You can start it manually from the Local Translation panel');
-      console.log('   💡 Or run: docker run -d -p 5001:5000 --name libretranslate libretranslate/libretranslate');
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 1) {
+          console.log(`   🔄 Retry attempt ${attempt}/${maxRetries}...`);
+        }
+        
+        const result = await libreTranslateManager.startLibreTranslate();
+        lastResult = result;
+        
+        if (result.success) {
+          // Verify it's actually running by polling health check
+          let verified = false;
+          for (let i = 0; i < 15; i++) { // Check for up to 30 seconds (15 * 2s)
+            const health = await libreTranslateManager.healthCheck();
+            if (health.running) {
+              verified = true;
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          
+          if (verified) {
+            console.log('✅ LibreTranslate started successfully!');
+            console.log(`   📍 Running at: ${libreTranslateManager.getEffectiveUrl()}`);
+            console.log(`   🌍 Available languages: ${result.languageCount || 'checking...'}`);
+            return;
+          } else {
+            lastError = new Error('Container started but health check failed');
+            console.log(`   ⚠️  Container started but not responding (attempt ${attempt}/${maxRetries})`);
+          }
+        } else {
+          lastError = new Error(result.message);
+          console.log(`   ⚠️  Start failed: ${result.message} (attempt ${attempt}/${maxRetries})`);
+        }
+      } catch (error) {
+        lastError = error;
+        console.log(`   ⚠️  Error: ${error.message} (attempt ${attempt}/${maxRetries})`);
+      }
+      
+      // Wait before retry (exponential backoff: 5s, 10s, 20s)
+      if (attempt < maxRetries) {
+        const delay = attempt * 5000;
+        console.log(`   ⏳ Waiting ${delay / 1000} seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
+    
+    // All retries failed
+    console.log(`⚠️  Failed to auto-start LibreTranslate after ${maxRetries} attempts`);
+    console.log(`   Error: ${lastError?.message || lastResult?.message || 'Unknown error'}`);
+    console.log('   💡 You can start it manually from the Local Translation panel');
+    console.log('   💡 Or run: docker run -d -p 5001:5000 --name libretranslate libretranslate/libretranslate');
   } catch (error) {
     console.error('⚠️  Error during LibreTranslate auto-start:', error.message);
     console.log('   💡 You can start it manually from the Local Translation panel');
+  }
+}
+
+/**
+ * Auto-start Ollama if installed and setting is enabled
+ */
+async function autoStartOllama() {
+  try {
+    const ollamaService = (await import('./services/ollamaService.js')).default;
+    const Settings = (await import('./models/Settings.js')).default;
+    
+    // Check if auto-start is enabled (default: true)
+    const autoStartEnabled = Settings.get('autoStartOllama');
+    
+    // Default to true if not set
+    if (autoStartEnabled === false) {
+      console.log('ℹ️  Ollama auto-start is disabled');
+      return;
+    }
+
+    console.log('🤖 Checking Ollama status...');
+    
+    // Check if Ollama is installed
+    const installed = await ollamaService.isInstalled();
+    if (!installed) {
+      console.log('ℹ️  Ollama not installed, skipping auto-start');
+      console.log('   💡 Install Ollama from: https://ollama.com');
+      return;
+    }
+
+    // Check if already running
+    const running = await ollamaService.isRunning();
+    if (running) {
+      console.log('✅ Ollama is already running');
+      return;
+    }
+
+    // Start Ollama with retries
+    console.log('🚀 Auto-starting Ollama...');
+    console.log('   ⏳ This may take a few seconds');
+    
+    let lastError = null;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await ollamaService.start();
+        
+        if (result.success) {
+          console.log('✅ Ollama started successfully!');
+          console.log(`   📍 Running at: ${ollamaService.baseUrl}`);
+          
+          // Verify it's actually running by checking status
+          let verified = false;
+          for (let i = 0; i < 6; i++) {
+            const isRunning = await ollamaService.isRunning();
+            if (isRunning) {
+              verified = true;
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          
+          if (verified) {
+            return;
+          } else {
+            lastError = new Error('Service started but not responding');
+          }
+        } else {
+          lastError = new Error(result.message);
+        }
+      } catch (error) {
+        lastError = error;
+        const Logger = (await import('./utils/logger.js')).default;
+        Logger.logError('ollama', `Auto-start attempt ${attempt} failed`, error, {});
+      }
+      
+      // Wait before retry (exponential backoff: 5s, 10s)
+      if (attempt < maxRetries) {
+        const delay = attempt * 5000;
+        console.log(`   ⏳ Retrying in ${delay / 1000} seconds... (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    // All retries failed
+    console.log(`⚠️  Failed to auto-start Ollama after ${maxRetries} attempts`);
+    console.log(`   Error: ${lastError?.message || 'Unknown error'}`);
+    console.log('   💡 You can start it manually from the LLM Enhancement panel');
+    console.log('   💡 Or run: ollama serve');
+  } catch (error) {
+    console.error('⚠️  Error during Ollama auto-start:', error.message);
+    console.log('   💡 You can start it manually from the LLM Enhancement panel');
   }
 }
 

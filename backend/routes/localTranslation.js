@@ -104,4 +104,95 @@ router.get('/containers', async (req, res, next) => {
   }
 });
 
+// GET /api/local-translation/resources - Get system and container resource usage
+router.get('/resources', async (req, res, next) => {
+  try {
+    const os = await import('os');
+    
+    // Get system resources
+    const systemResources = {
+      cpu: {
+        model: os.cpus()[0]?.model || 'Unknown',
+        cores: os.cpus().length,
+        usage: await getCPUUsage()
+      },
+      memory: {
+        total: os.totalmem(),
+        free: os.freemem(),
+        used: os.totalmem() - os.freemem(),
+        usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2)
+      },
+      platform: os.platform(),
+      arch: os.arch()
+    };
+
+    // Get Docker container stats if running
+    let containerStats = null;
+    const health = await libreTranslateManager.healthCheck();
+    
+    if (health.running) {
+      try {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+        
+        // Get container ID
+        const { stdout: containerId } = await execAsync('docker ps --filter "ancestor=libretranslate/libretranslate" --format "{{.ID}}"');
+        
+        if (containerId.trim()) {
+          // Get container stats
+          const { stdout: statsOutput } = await execAsync(`docker stats ${containerId.trim()} --no-stream --format "{{.CPUPerc}},{{.MemUsage}}"`);
+          const [cpuPerc, memUsage] = statsOutput.trim().split(',');
+          
+          containerStats = {
+            cpu: cpuPerc,
+            memory: memUsage
+          };
+        }
+      } catch (error) {
+        // Non-fatal: container stats are optional
+        console.warn('Failed to get container stats:', error.message);
+      }
+    }
+
+    res.json({
+      system: systemResources,
+      container: containerStats,
+      libreTranslate: {
+        running: health.running,
+        url: health.url
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Helper function to calculate CPU usage
+async function getCPUUsage() {
+  const os = await import('os');
+  
+  // Get initial CPU info
+  const cpus1 = os.cpus();
+  const idle1 = cpus1.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+  const total1 = cpus1.reduce((acc, cpu) => 
+    acc + cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq, 0);
+  
+  // Wait 100ms
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Get CPU info again
+  const cpus2 = os.cpus();
+  const idle2 = cpus2.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+  const total2 = cpus2.reduce((acc, cpu) => 
+    acc + cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq, 0);
+  
+  // Calculate usage
+  const idleDiff = idle2 - idle1;
+  const totalDiff = total2 - total1;
+  const usage = 100 - (100 * idleDiff / totalDiff);
+  
+  return usage.toFixed(2);
+}
+
 export default router;

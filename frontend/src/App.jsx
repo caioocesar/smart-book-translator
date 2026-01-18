@@ -6,6 +6,7 @@ import SettingsTab from './components/SettingsTab';
 import HistoryTab from './components/HistoryTab';
 import SystemStatus from './components/SystemStatus';
 import ErrorModal from './components/ErrorModal';
+import LocalStatusModal from './components/LocalStatusModal';
 import { ErrorProvider, useError } from './contexts/ErrorContext';
 import setupAxiosInterceptor from './utils/axiosInterceptor';
 import { t, getCurrentLanguage, setCurrentLanguage, getAvailableLanguages } from './utils/i18n';
@@ -20,8 +21,10 @@ function App() {
   const [libreTranslateStatus, setLibreTranslateStatus] = useState(null);
   const [showSystemStatus, setShowSystemStatus] = useState(false);
   const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
+  const [showLocalStatusModal, setShowLocalStatusModal] = useState(false);
   const [hasReadyTranslation, setHasReadyTranslation] = useState(false);
   const [currentLanguage, setLanguage] = useState(getCurrentLanguage());
+  const [showOllamaPrompt, setShowOllamaPrompt] = useState(false);
   const [, forceUpdate] = useState();
 
   useEffect(() => {
@@ -66,9 +69,55 @@ function App() {
     // Check for ready translations
     checkForReadyTranslations();
 
-    // Poll LibreTranslate status every 10 seconds
-    const libreTranslateInterval = setInterval(checkLibreTranslateStatus, 10000);
-    return () => clearInterval(libreTranslateInterval);
+    // Check Ollama installation status
+    checkOllamaInstallation();
+
+    // Poll LibreTranslate status more frequently during startup (every 5s for first minute)
+    let pollCount = 0;
+    const quickPollInterval = setInterval(() => {
+      checkLibreTranslateStatus();
+      pollCount++;
+      if (pollCount >= 12) { // Stop after 60 seconds (12 * 5s)
+        clearInterval(quickPollInterval);
+      }
+    }, 5000); // Every 5s (reduced from 2s)
+
+    // Frontend fallback: If LibreTranslate is still stopped after 30 seconds, try to start it
+    const fallbackTimeout = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/local-translation/status`);
+        if (response.ok) {
+          const data = await response.json();
+          if (!data.running && data.dockerAvailable && data.dockerRunning) {
+            console.log('🔄 Frontend fallback: Attempting to start LibreTranslate...');
+            try {
+              const startResponse = await fetch(`${API_URL}/api/local-translation/start`, {
+                method: 'POST'
+              });
+              const startResult = await startResponse.json();
+              if (startResult.success) {
+                console.log('✅ Frontend fallback: LibreTranslate started successfully');
+              } else {
+                console.log('⚠️ Frontend fallback: Failed to start LibreTranslate:', startResult.message);
+              }
+            } catch (startError) {
+              console.error('Frontend fallback start error:', startError);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Frontend fallback check error:', error);
+      }
+    }, 30000); // 30 seconds
+
+    // Regular polling after startup period
+    const libreTranslateInterval = setInterval(checkLibreTranslateStatus, 30000); // Every 30s (reduced from 10s)
+    
+    return () => {
+      clearInterval(quickPollInterval);
+      clearInterval(libreTranslateInterval);
+      clearTimeout(fallbackTimeout);
+    };
   }, []);
 
   const checkForReadyTranslations = async () => {
@@ -80,6 +129,33 @@ function App() {
     } catch (err) {
       console.error('Error checking translations:', err);
     }
+  };
+
+  const checkOllamaInstallation = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/ollama/status`);
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Only show prompt if Ollama is not installed and user hasn't dismissed it before
+        const hasSeenOllamaPrompt = localStorage.getItem('hasSeenOllamaPrompt');
+        if (!data.installed && !hasSeenOllamaPrompt) {
+          // Wait 5 seconds before showing prompt (don't interrupt startup)
+          setTimeout(() => {
+            setShowOllamaPrompt(true);
+          }, 5000);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking Ollama status:', err);
+    }
+  };
+
+  const handleOllamaPromptClose = (dontShowAgain = false) => {
+    if (dontShowAgain) {
+      localStorage.setItem('hasSeenOllamaPrompt', 'true');
+    }
+    setShowOllamaPrompt(false);
   };
 
   const checkLibreTranslateStatus = async () => {
@@ -147,7 +223,7 @@ function App() {
               className={`status-indicator ${libreTranslateStatus?.running ? 'online' : 'offline'}`}
               title={libreTranslateStatus?.running ? `LibreTranslate: Running (${libreTranslateStatus?.languageCount || 0} languages)` : 'LibreTranslate: Stopped'}
               style={{ cursor: 'pointer' }}
-              onClick={() => setActiveTab('settings')}
+              onClick={() => setShowLocalStatusModal(true)}
             >
               {libreTranslateStatus?.running ? '🏠 Local' : '🏠 ⚠️'}
             </div>
@@ -164,6 +240,12 @@ function App() {
           </div>
         )}
       </header>
+
+      {/* Local Status Modal */}
+      <LocalStatusModal 
+        isOpen={showLocalStatusModal} 
+        onClose={() => setShowLocalStatusModal(false)} 
+      />
 
       <div className="tab-container">
         <div className="tabs">
@@ -216,6 +298,63 @@ function App() {
           <p className="version">v1.0.0 | Made with ❤️ for personal use</p>
         </div>
       </footer>
+
+      {/* Ollama Installation Prompt */}
+      {showOllamaPrompt && (
+        <div className="modal-overlay" onClick={() => handleOllamaPromptClose(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <h2>🤖 Enhance Your Translations with AI</h2>
+            
+            <div style={{ padding: '20px 0' }}>
+              <p style={{ fontSize: '16px', lineHeight: '1.6', marginBottom: '20px' }}>
+                <strong>Ollama</strong> is a free, offline AI tool that can improve your translations by:
+              </p>
+              
+              <ul style={{ fontSize: '15px', lineHeight: '1.8', marginLeft: '20px', marginBottom: '20px' }}>
+                <li>✨ Adjusting formality (formal/informal/neutral)</li>
+                <li>📝 Improving text structure and coherence</li>
+                <li>🔍 Verifying glossary terms</li>
+                <li>🎯 Making translations more natural</li>
+              </ul>
+
+              <div style={{ background: '#f0f7ff', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                <p style={{ margin: 0, fontSize: '14px' }}>
+                  <strong>💡 Optional but Recommended:</strong><br/>
+                  Ollama runs completely offline on your computer. No internet required after installation.
+                </p>
+              </div>
+
+              <p style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
+                Installation takes about 2-3 minutes. You'll need to restart your computer after installation.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => handleOllamaPromptClose(true)} 
+                className="btn-secondary"
+                style={{ padding: '10px 20px' }}
+              >
+                Don't Show Again
+              </button>
+              <button 
+                onClick={() => {
+                  handleOllamaPromptClose(false);
+                  window.open('https://ollama.com/download', '_blank');
+                }} 
+                className="btn-primary"
+                style={{ padding: '10px 20px' }}
+              >
+                📥 Download Ollama
+              </button>
+            </div>
+
+            <p style={{ fontSize: '12px', color: '#999', marginTop: '15px', textAlign: 'center' }}>
+              You can also install later from Settings → LLM Enhancement
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Privacy Notice Modal */}
       {showPrivacyNotice && (
