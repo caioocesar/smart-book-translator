@@ -3,6 +3,7 @@ import GlossaryProcessor from './glossaryProcessor.js';
 import SentenceBatcher from './sentenceBatcher.js';
 import libreTranslateManager from './libreTranslateManager.js';
 import ollamaService from './ollamaService.js';
+import textAnalyzer from './textAnalyzer.js';
 import Logger from '../utils/logger.js';
 import { LocalTranslationError } from '../utils/errors.js';
 import Settings from '../models/Settings.js';
@@ -191,9 +192,37 @@ class LocalTranslationService {
         glossaryStats = postProcessResult.stats;
       }
 
+      // Step 5.5: Optional text analysis (1.5 layer)
+      let analysisReport = null;
+      const useLLM = options.useLLM || Settings.get('ollamaEnabled') || false;
+      
+      if (useLLM) {
+        try {
+          console.log('📊 Analyzing translation quality...');
+          const analysisStartTime = Date.now();
+          
+          analysisReport = await textAnalyzer.analyzeTranslation(
+            text,
+            translatedText,
+            sourceLang,
+            targetLang
+          );
+          
+          const analysisDuration = Date.now() - analysisStartTime;
+          console.log(`✓ Text analysis completed in ${analysisDuration}ms`);
+          
+          if (analysisReport.hasIssues) {
+            console.log(`  → Found ${analysisReport.issues.length} issue(s) for LLM to address`);
+          }
+        } catch (analysisError) {
+          // Non-fatal: continue without analysis
+          Logger.logError('localTranslation', 'Text analysis failed', analysisError, {});
+          console.warn('⚠️ Text analysis error:', analysisError.message);
+        }
+      }
+
       // Step 6: Optional LLM post-processing
       let llmStats = null;
-      const useLLM = options.useLLM || Settings.get('ollamaEnabled') || false;
       
       if (useLLM) {
         try {
@@ -210,7 +239,8 @@ class LocalTranslationService {
               improveStructure: options.improveStructure !== false && (Settings.get('ollamaTextStructure') !== false),
               verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
               glossaryTerms: glossaryTerms,
-              model: options.ollamaModel || Settings.get('ollamaModel') || null
+              model: options.ollamaModel || Settings.get('ollamaModel') || null,
+              analysisReport: analysisReport // Pass analysis to LLM
             });
             
             if (llmResult.success) {
@@ -218,9 +248,13 @@ class LocalTranslationService {
               llmStats = {
                 duration: Date.now() - llmStartTime,
                 model: llmResult.model,
-                changes: llmResult.changes
+                changes: llmResult.changes,
+                issuesAddressed: analysisReport?.issues?.length || 0
               };
               console.log(`✓ LLM enhancement completed in ${llmStats.duration}ms`);
+              if (analysisReport?.hasIssues) {
+                console.log(`  → Addressed ${analysisReport.issues.length} identified issue(s)`);
+              }
             } else {
               console.warn('⚠️ LLM enhancement failed:', llmResult.error);
             }
@@ -262,6 +296,7 @@ class LocalTranslationService {
         duration,
         glossaryStats,
         batchStats,
+        analysisReport,
         llmStats,
         provider: 'local (LibreTranslate)' + (llmStats ? ' + LLM' : '')
       };

@@ -43,10 +43,10 @@ class GlossaryProcessor {
     sortedTerms.forEach((term, index) => {
       try {
         // Use placeholders designed to survive translation.
-        // - HTML mode: use a dedicated tag that should be preserved by HTML translation.
+        // - HTML mode: use HTML comment (LibreTranslate preserves comments).
         // - Text mode: use a stable ASCII token.
         const placeholder = htmlMode
-          ? `<gterm idx="${index}" ts="${timestamp}"/>`
+          ? `<!--GTERM:${index}:${timestamp}-->`
           : `__GTERM_${index}_${timestamp}__`;
         
         // Escape special regex characters
@@ -129,19 +129,20 @@ class GlossaryProcessor {
           }
         }
 
-        // If we used HTML tag placeholders, replace by matching the tag (it may be expanded/rewritten).
-        if (typeof placeholder === 'string' && placeholder.startsWith('<gterm')) {
-          const idxMatch = placeholder.match(/\bidx\s*=\s*["']?(\d+)["']?/i);
+        // If we used HTML comment placeholders, match them (with optional whitespace).
+        if (typeof placeholder === 'string' && placeholder.startsWith('<!--GTERM:')) {
+          const idxMatch = placeholder.match(/<!--GTERM:(\d+):\d+-->/);
           const idx = idxMatch?.[1];
           if (idx) {
-            const tagRegex = new RegExp(
-              `<gterm\\b[^>]*\\bidx\\s*=\\s*["']?${idx}["']?[^>]*(?:\\/\\s*>|>\\s*<\\/gterm\\s*>)`,
+            // Match comment with flexible whitespace
+            const commentRegex = new RegExp(
+              `<!--\\s*GTERM\\s*:\\s*${idx}\\s*:\\s*\\d+\\s*-->`,
               'gi'
             );
-            const tagMatches = (finalText.match(tagRegex) || []).length;
-            if (tagMatches > 0) {
-              finalText = finalText.replace(tagRegex, termInfo.targetTerm);
-              restored += tagMatches;
+            const commentMatches = (finalText.match(commentRegex) || []).length;
+            if (commentMatches > 0) {
+              finalText = finalText.replace(commentRegex, termInfo.targetTerm);
+              restored += commentMatches;
               this.stats.postProcessed++;
               continue;
             }

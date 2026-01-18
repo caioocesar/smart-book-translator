@@ -328,7 +328,8 @@ class OllamaService {
       improveStructure = true,
       verifyGlossary = false,
       glossaryTerms = [],
-      model = null
+      model = null,
+      analysisReport = null // NEW: Text analysis report from textAnalyzer
     } = options;
 
     try {
@@ -355,7 +356,7 @@ class OllamaService {
         improveStructure,
         verifyGlossary,
         glossaryTerms,
-        { outputJson: true }
+        { outputJson: true, analysisReport }
       );
 
       const callOllama = async (promptText, generationOptions = {}, useStructuredOutput = true) => {
@@ -431,7 +432,7 @@ class OllamaService {
           improveStructure,
           verifyGlossary,
           glossaryTerms,
-          { strictLanguage: true, outputJson: true }
+          { strictLanguage: true, outputJson: true, analysisReport }
         );
         enhancedText = await callOllama(strictPrompt, { temperature: 0.0, top_p: 0.1 }, true);
         enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
@@ -450,6 +451,11 @@ class OllamaService {
       // Enforce glossary after LLM (prevents the LLM from undoing glossary work).
       if (Array.isArray(glossaryTerms) && glossaryTerms.length > 0) {
         enhancedText = this.enforceGlossaryTerms(enhancedText, glossaryTerms);
+      }
+
+      // Apply pt-BR grammar fixes (agreement, prepositions, pronouns)
+      if (targetLang === 'pt') {
+        enhancedText = this.applyBrazilianPortugueseFixes(enhancedText);
       }
 
       const duration = Date.now() - startTime;
@@ -520,17 +526,45 @@ class OllamaService {
 
     // Portuguese (Brazil) consistency rules (fixes issues like "tua" vs "sua", "demasiado", agreement errors, etc.)
     if (targetLower === 'pt' || targetLower === 'pt-br' || targetLanguageName.toLowerCase().includes('brazilian portuguese')) {
-      prompt += `BRAZILIAN PORTUGUESE STYLE GUIDE:\n`;
+      prompt += `BRAZILIAN PORTUGUESE STYLE GUIDE (CRITICAL):\n`;
       prompt += `- Use Brazilian Portuguese (pt-BR), not European Portuguese.\n`;
       prompt += `- Pronouns: prefer "você" and possessives "seu/sua/seus/suas". Avoid "tu/teu/tua" unless the source clearly uses that register.\n`;
       prompt += `- Avoid Europeanisms like "demasiado" when "demais" fits naturally.\n`;
-      prompt += `- Fix agreement errors (singular/plural, gender): e.g., "bons homens" -> "bons", and keep adjectives consistent.\n`;
-      prompt += `- Fix possessive constructions and prepositions to sound natural: e.g., prefer "a porta de Al'Thor" over overly literal or awkward forms.\n`;
+      prompt += `- CRITICAL: Fix ALL number/gender agreement errors:\n`;
+      prompt += `  Example: "Eram bons homens. Talvez demasiado bom." → "Eram bons homens. Talvez bons demais."\n`;
+      prompt += `  (plural subject "homens" requires plural adjective "bons", not singular "bom")\n`;
+      prompt += `- Use "de" for possessive with proper nouns: "a porta de Al'Thor" (not "do Al'Thor")\n`;
       prompt += `- Keep proper names unchanged (do not translate names).\n\n`;
     }
 
     if (hasHtmlTags) {
       prompt += `⚠️ CRITICAL: This text contains HTML formatting tags. You MUST preserve ALL HTML tags exactly as they are. Do not remove, modify, or add any HTML tags.\n\n`;
+    }
+
+    // Add text analysis issues if available (from "1.5 layer")
+    if (extra?.analysisReport && extra.analysisReport.hasIssues) {
+      prompt += `TEXT ANALYSIS - SPECIFIC ISSUES DETECTED:\n`;
+      prompt += `The following issues were identified in the translation. Please address them:\n\n`;
+      
+      extra.analysisReport.issues.forEach((issue, index) => {
+        const severityIcon = issue.severity === 'critical' ? '🔴' : 
+                            issue.severity === 'high' ? '🟠' : 
+                            issue.severity === 'medium' ? '🟡' : '🟢';
+        
+        prompt += `${index + 1}. ${severityIcon} ${issue.description}\n`;
+        prompt += `   → ${issue.suggestion}\n`;
+        
+        if (issue.examples && issue.examples.length > 0) {
+          prompt += `   Examples to fix:\n`;
+          issue.examples.forEach((example) => {
+            const text = typeof example === 'string' ? example : example.text;
+            prompt += `   • "${text}"\n`;
+          });
+        }
+        prompt += `\n`;
+      });
+      
+      prompt += `\n`;
     }
 
     prompt += `TRANSLATION TO REVIEW:\n${text}\n\n`;
@@ -575,6 +609,7 @@ class OllamaService {
       prompt += `   - Ensure logical flow between sentences and paragraphs\n`;
       prompt += `   - Add appropriate connectors and transitions where needed\n`;
       prompt += `   - Fix any grammatical errors or awkward phrasing\n`;
+      prompt += `   - CRITICAL: Fix number/gender agreement errors (e.g., plural noun + singular adjective)\n`;
       prompt += `   - Improve readability and make the language flow naturally\n`;
       prompt += `   - Ensure the translation sounds natural in ${targetLanguageName}\n`;
       taskNumber++;
@@ -729,6 +764,66 @@ class OllamaService {
       out = replaceOutsideTags(out, regex, target);
     }
     return out;
+  }
+
+  /**
+   * Apply common Brazilian Portuguese grammar fixes
+   * @private
+   */
+  applyBrazilianPortugueseFixes(text) {
+    if (!text || typeof text !== 'string') return text;
+    let fixed = text;
+
+    // Fix "do/da + proper noun starting with vowel/consonant" → "de"
+    // Pattern: "do Al'Thor" → "de Al'Thor", "da Egwene" → "de Egwene" (more natural for names)
+    fixed = fixed.replace(/\b(do|da)\s+([A-Z][a-z]*['']?[A-Z]?[a-z]*)\b/g, (match, article, name) => {
+      // Only fix if it's clearly a proper noun (capitalized)
+      return `de ${name}`;
+    });
+
+    // Fix "tua/teu" → "sua/seu" (pt-BR default, unless dialogue clearly needs tu)
+    // Only replace when not preceded by "tu" (to avoid breaking intentional tu-form)
+    fixed = fixed.replace(/(?<!tu\s)\b(tua|teu|tuas|teus)\b/gi, (match) => {
+      const lower = match.toLowerCase();
+      if (lower === 'tua') return match.replace(/tua/i, 'sua');
+      if (lower === 'teu') return match.replace(/teu/i, 'seu');
+      if (lower === 'tuas') return match.replace(/tuas/i, 'suas');
+      if (lower === 'teus') return match.replace(/teus/i, 'seus');
+      return match;
+    });
+
+    // Fix common agreement errors where adjective doesn't match plural noun
+    // Look for plural nouns followed (within ~5 words) by singular adjective
+    // Pattern: "homens... bom" → "homens... bons" (but only if no singular noun in between)
+    const pluralNouns = ['homens', 'mulheres', 'pessoas', 'eles', 'elas', 'todos', 'todas', 'alguns', 'algumas'];
+    const singularAdjs = [
+      { singular: 'bom', plural: 'bons' },
+      { singular: 'boa', plural: 'boas' },
+      { singular: 'grande', plural: 'grandes' },
+      { singular: 'pequeno', plural: 'pequenos' },
+      { singular: 'pequena', plural: 'pequenas' }
+    ];
+
+    for (const adj of singularAdjs) {
+      for (const noun of pluralNouns) {
+        // Match: plural noun + (up to 5 words) + singular adjective + sentence boundary
+        const pattern = new RegExp(
+          `\\b${noun}\\b([^.!?]{0,50})\\b${adj.singular}\\b(?=[.!?\\s])`,
+          'gi'
+        );
+        fixed = fixed.replace(pattern, (match, middle) => {
+          // Only fix if there's no singular noun in the middle that would justify singular adjective
+          const singularNouns = ['homem', 'mulher', 'pessoa', 'ele', 'ela'];
+          const hasSingular = singularNouns.some(sn => new RegExp(`\\b${sn}\\b`, 'i').test(middle));
+          if (!hasSingular) {
+            return match.replace(new RegExp(`\\b${adj.singular}\\b`, 'gi'), adj.plural);
+          }
+          return match;
+        });
+      }
+    }
+
+    return fixed;
   }
 
   /**
