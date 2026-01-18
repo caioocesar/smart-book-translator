@@ -305,7 +305,11 @@ class LibreTranslateManager {
         };
       }
 
-      // Check if already running
+      // IMPORTANT: Clean up ALL existing containers FIRST to avoid conflicts
+      // This must happen before any container checks or start attempts
+      await this.cleanupExistingContainers();
+
+      // Check if already running (after cleanup)
       const alreadyRunning = await this.isContainerRunning();
       if (alreadyRunning) {
         this.status = 'running';
@@ -316,47 +320,19 @@ class LibreTranslateManager {
         };
       }
 
-      // Check if container exists but is stopped
-      const stoppedContainer = await this.getStoppedContainer();
-      if (stoppedContainer.exists) {
-        Logger.logError('libreTranslate', 'Found stopped container, restarting...', null, {
-          containerId: stoppedContainer.containerId
-        });
-        
-        try {
-          await execAsync(`docker start ${stoppedContainer.containerId}`);
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
-          const healthCheck = await this.healthCheck();
-          if (healthCheck.running) {
-            this.status = 'running';
-            return {
-              success: true,
-              message: 'LibreTranslate restarted successfully',
-              containerId: stoppedContainer.containerId.substring(0, 12),
-              status: this.status
-            };
-          }
-        } catch (restartError) {
-          Logger.logError('libreTranslate', 'Failed to restart stopped container, will create new one', restartError, {});
-          // Remove the failed container
-          try {
-            await execAsync(`docker rm ${stoppedContainer.containerId}`);
-          } catch {}
-        }
-      }
-
       // Start new container with retry logic
       this.status = 'starting';
       Logger.logError('libreTranslate', 'Starting LibreTranslate container', null, {});
 
-      // Clean up ALL existing containers before starting
-      await this.cleanupExistingContainers();
-
       let lastError = null;
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          const command = 'docker run -d -p 5001:5000 --name libretranslate libretranslate/libretranslate';
+          // Run with minimal configuration for faster startup
+          // Load only essential languages to reduce initialization time
+          const command = 'docker run -d -p 5001:5000 --name libretranslate ' +
+            '-e LT_LOAD_ONLY=en,pt,es,fr,de,it,ja,zh ' +
+            '--restart unless-stopped ' +
+            'libretranslate/libretranslate:latest';
           const { stdout } = await execAsync(command, { timeout: 120000 }); // 2 min timeout for image pull
           const containerId = stdout.trim();
 
@@ -365,11 +341,15 @@ class LibreTranslateManager {
           });
 
           // Wait for container to initialize (with progressive backoff)
-          const waitTime = 3000 + (attempt - 1) * 2000; // 3s, 5s, 7s
+          // First run needs more time to download and load language models
+          // LibreTranslate takes 30-60 seconds to fully boot on first run
+          const waitTime = 30000 + (attempt - 1) * 10000; // 30s, 40s, 50s (increased for model loading)
+          Logger.logError('libreTranslate', `Waiting ${waitTime / 1000}s for container to initialize...`, null, {});
           await new Promise(resolve => setTimeout(resolve, waitTime));
 
-          // Verify it's running with retries
-          for (let healthAttempt = 1; healthAttempt <= 3; healthAttempt++) {
+          // Verify it's running with retries (reduced frequency: every 10s)
+          // Increased attempts for first run when downloading models
+          for (let healthAttempt = 1; healthAttempt <= 5; healthAttempt++) {
             const healthCheck = await this.healthCheck();
             
             if (healthCheck.running) {
@@ -390,8 +370,9 @@ class LibreTranslateManager {
               };
             }
             
-            if (healthAttempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
+            if (healthAttempt < 5) {
+              // Reduced frequency: wait 10 seconds between health checks
+              await new Promise(resolve => setTimeout(resolve, 10000));
             }
           }
 
@@ -401,24 +382,28 @@ class LibreTranslateManager {
         } catch (error) {
           lastError = error;
           
-          // Check if it's a port conflict
-          if (error.message && error.message.includes('port is already allocated')) {
-            Logger.logError('libreTranslate', 'Port 5001 is already in use', error, {});
+          // Check if it's a container name conflict (most common issue)
+          if (error.message && (error.message.includes('already in use') || error.message.includes('Conflict'))) {
+            Logger.logError('libreTranslate', 'Container name conflict detected, cleaning up...', error, {});
             
-            // Try to identify what's using the port
-            const portCheck = await this.isPortInUse();
-            if (portCheck.inUse) {
-              Logger.logError('libreTranslate', `Port 5001 is occupied by process ${portCheck.processId}`, null, {});
-              
-              // Try to clean up any containers that might be using it
-              await this.cleanupExistingContainers();
+            // Clean up any conflicting containers and try again
+            await this.cleanupExistingContainers();
+            
+            // Also check for port conflicts
+            if (error.message.includes('port is already allocated')) {
+              const portCheck = await this.isPortInUse();
+              if (portCheck.inUse) {
+                Logger.logError('libreTranslate', `Port 5001 is occupied by process ${portCheck.processId}`, null, {});
+              }
             }
           } else {
             Logger.logError('libreTranslate', `Start attempt ${attempt}/${maxRetries} failed`, error, {});
           }
           
           if (attempt < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retry
+            // Exponential backoff: 3s, 6s, 9s
+            const delay = 3000 * attempt;
+            await new Promise(resolve => setTimeout(resolve, delay));
           }
         }
       }

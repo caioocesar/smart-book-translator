@@ -300,10 +300,11 @@ async function autoStartLibreTranslate() {
       return;
     }
 
-    // Check for existing containers that might be blocking the port
+    // Clean up existing containers BEFORE starting (prevents conflicts)
     const existingContainers = await libreTranslateManager.getAllLibreTranslateContainers();
     if (existingContainers.length > 0) {
       console.log(`🧹 Found ${existingContainers.length} existing LibreTranslate container(s), cleaning up...`);
+      await libreTranslateManager.cleanupExistingContainers();
     }
 
     // Start LibreTranslate with retries
@@ -325,15 +326,16 @@ async function autoStartLibreTranslate() {
         lastResult = result;
         
         if (result.success) {
-          // Verify it's actually running by polling health check
+          // Verify it's actually running by polling health check (reduced frequency: every 10s)
           let verified = false;
-          for (let i = 0; i < 15; i++) { // Check for up to 30 seconds (15 * 2s)
+          for (let i = 0; i < 6; i++) { // Check for up to 60 seconds (6 * 10s) - reduced frequency
             const health = await libreTranslateManager.healthCheck();
             if (health.running) {
               verified = true;
               break;
             }
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Reduced frequency: wait 10 seconds between checks
+            await new Promise(resolve => setTimeout(resolve, 10000));
           }
           
           if (verified) {
