@@ -62,6 +62,27 @@ class TranslationChunk {
     return result.lastInsertRowid;
   }
 
+  /**
+   * Add multiple chunks in a single transaction (more efficient for batch operations)
+   * @param {string} jobId - Job ID
+   * @param {Array} chunks - Array of {index, sourceText, sourceHtml} objects
+   */
+  static addBatch(jobId, chunks) {
+    const stmt = db.prepare(`
+      INSERT INTO translation_chunks 
+      (job_id, chunk_index, source_text, source_html, status)
+      VALUES (?, ?, ?, ?, 'pending')
+    `);
+
+    const transaction = db.transaction((items) => {
+      for (const chunk of items) {
+        stmt.run(jobId, chunk.index, chunk.sourceText, chunk.sourceHtml || null);
+      }
+    });
+
+    transaction(chunks);
+  }
+
   static getByJob(jobId) {
     const stmt = db.prepare(`
       SELECT * FROM translation_chunks 
@@ -156,10 +177,24 @@ class TranslationChunk {
   static markChunkForRetry(chunkId) {
     const stmt = db.prepare(`
       UPDATE translation_chunks 
-      SET status = 'pending', error_message = NULL, next_retry_at = NULL
+      SET status = 'pending', error_message = NULL, next_retry_at = NULL, processing_layer = NULL
       WHERE id = ?
     `);
     stmt.run(chunkId);
+  }
+
+  /**
+   * Update the processing layer for a chunk
+   * @param {number} id - Chunk ID
+   * @param {string} layer - Processing layer: 'translating', 'llm-enhancing', or null
+   */
+  static updateProcessingLayer(id, layer) {
+    const stmt = db.prepare(`
+      UPDATE translation_chunks 
+      SET processing_layer = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(layer, id);
   }
 }
 

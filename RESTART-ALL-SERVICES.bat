@@ -26,14 +26,23 @@ if errorlevel 1 (
     echo   RESTART-LIBRETRANSLATE.bat
     echo.
 ) else (
-    echo Stopping LibreTranslate containers...
+    echo Checking LibreTranslate status...
     
-    REM Stop and remove all LibreTranslate containers
-    for /f "tokens=*" %%i in ('docker ps -aq --filter "ancestor=libretranslate/libretranslate"') do docker rm -f %%i 2>nul
-    for /f "tokens=*" %%i in ('docker ps -aq --filter "name=libretranslate"') do docker rm -f %%i 2>nul
-    
-    echo Starting new LibreTranslate container...
-    docker run -d -p 5001:5000 --name libretranslate libretranslate/libretranslate
+    REM Check if container is already running
+    docker ps --filter "name=libretranslate" --format "{{.ID}}" 2>nul | findstr /r "." >nul
+    if %errorlevel% equ 0 (
+        echo [INFO] LibreTranslate container is already running
+        echo [INFO] Restarting it...
+        for /f "tokens=*" %%i in ('docker ps -q --filter "name=libretranslate"') do docker restart %%i 2>nul
+    ) else (
+        echo Cleaning up stopped containers...
+        REM Only remove STOPPED containers
+        for /f "tokens=*" %%i in ('docker ps -aq --filter "ancestor=libretranslate/libretranslate" --filter "status=exited"') do docker rm -f %%i 2>nul
+        for /f "tokens=*" %%i in ('docker ps -aq --filter "name=libretranslate" --filter "status=exited"') do docker rm -f %%i 2>nul
+        
+        echo Starting new LibreTranslate container...
+        docker run -d -p 5001:5000 --name libretranslate -e LT_LOAD_ONLY=en,pt,es,fr,de,it,ja,zh --restart unless-stopped libretranslate/libretranslate:latest
+    )
     
     if errorlevel 1 (
         echo [ERROR] Failed to start LibreTranslate

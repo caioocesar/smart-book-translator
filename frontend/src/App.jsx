@@ -220,12 +220,23 @@ function App() {
             
             {/* LibreTranslate Status */}
             <div 
-              className={`status-indicator ${libreTranslateStatus?.running ? 'online' : 'offline'}`}
-              title={libreTranslateStatus?.running ? `LibreTranslate: Running (${libreTranslateStatus?.languageCount || 0} languages)` : 'LibreTranslate: Stopped'}
+              className={`status-indicator ${
+                libreTranslateStatus?.running ? 'online' : 
+                libreTranslateStatus?.status === 'booting' || libreTranslateStatus?.status === 'starting' ? 'booting' : 
+                'offline'
+              }`}
+              title={
+                libreTranslateStatus?.running ? `LibreTranslate: Running (${libreTranslateStatus?.languageCount || 0} languages)` : 
+                libreTranslateStatus?.status === 'booting' ? 'LibreTranslate: Booting (loading models...)' :
+                libreTranslateStatus?.status === 'starting' ? 'LibreTranslate: Starting...' :
+                'LibreTranslate: Stopped'
+              }
               style={{ cursor: 'pointer' }}
               onClick={() => setShowLocalStatusModal(true)}
             >
-              {libreTranslateStatus?.running ? '🏠 Local' : '🏠 ⚠️'}
+              {libreTranslateStatus?.running ? '🏠 Local' : 
+               libreTranslateStatus?.status === 'booting' || libreTranslateStatus?.status === 'starting' ? '🏠 ⏳' :
+               '🏠 ⚠️'}
             </div>
 
             {/* Backend Status */}

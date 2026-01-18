@@ -181,27 +181,40 @@ class LibreTranslateManager {
 
   /**
    * Check if LibreTranslate container is running
-   * @returns {Promise<boolean>}
+   * @returns {Promise<{running: boolean, booting: boolean, containerId: string|null}>}
    */
   async isContainerRunning() {
     try {
       // Check by image first
       const { stdout: byImage } = await execAsync('docker ps --filter "ancestor=libretranslate/libretranslate" --format "{{.ID}}"');
       if (byImage.trim().length > 0) {
-        return true;
+        const containerId = byImage.trim().split('\n')[0];
+        // Container exists, check if it's responding
+        const health = await this.healthCheck();
+        return { 
+          running: true, 
+          booting: !health.running, // If container exists but not responding, it's booting
+          containerId 
+        };
       }
       
       // Also check by name (in case container was started manually)
       const { stdout: byName } = await execAsync('docker ps --filter "name=libretranslate" --format "{{.ID}}"');
       if (byName.trim().length > 0) {
-        return true;
+        const containerId = byName.trim().split('\n')[0];
+        // Container exists, check if it's responding
+        const health = await this.healthCheck();
+        return { 
+          running: true, 
+          booting: !health.running, // If container exists but not responding, it's booting
+          containerId 
+        };
       }
       
-      // Finally, check if port 5001 is responding (most reliable)
-      const health = await this.healthCheck();
-      return health.running;
+      // No container found
+      return { running: false, booting: false, containerId: null };
     } catch (error) {
-      return false;
+      return { running: false, booting: false, containerId: null };
     }
   }
 
@@ -229,14 +242,35 @@ class LibreTranslateManager {
 
   /**
    * Clean up all existing LibreTranslate containers
+   * @param {boolean} onlyStoppedContainers - If true, only remove stopped/exited containers
    * @returns {Promise<void>}
    */
-  async cleanupExistingContainers() {
+  async cleanupExistingContainers(onlyStoppedContainers = false) {
     try {
-      const containers = await this.getAllLibreTranslateContainers();
+      let containers = [];
+      
+      if (onlyStoppedContainers) {
+        // Only get stopped/exited containers to avoid killing running ones
+        try {
+          const { stdout: byName } = await execAsync('docker ps -a --filter "name=libretranslate" --filter "status=exited" --format "{{.ID}}"');
+          const { stdout: byImage } = await execAsync('docker ps -a --filter "ancestor=libretranslate/libretranslate" --filter "status=exited" --format "{{.ID}}"');
+          
+          const containerSet = new Set([
+            ...byName.trim().split('\n').filter(id => id),
+            ...byImage.trim().split('\n').filter(id => id)
+          ]);
+          
+          containers = Array.from(containerSet);
+        } catch (error) {
+          // Ignore errors when no stopped containers found
+        }
+      } else {
+        // Get all containers (running or stopped)
+        containers = await this.getAllLibreTranslateContainers();
+      }
       
       if (containers.length > 0) {
-        Logger.logError('libreTranslate', `Found ${containers.length} existing container(s), cleaning up...`, null, {
+        Logger.logError('libreTranslate', `Found ${containers.length} ${onlyStoppedContainers ? 'stopped' : 'existing'} container(s), cleaning up...`, null, {
           containers: containers.map(id => id.substring(0, 12))
         });
         
@@ -305,20 +339,35 @@ class LibreTranslateManager {
         };
       }
 
-      // IMPORTANT: Clean up ALL existing containers FIRST to avoid conflicts
-      // This must happen before any container checks or start attempts
-      await this.cleanupExistingContainers();
-
-      // Check if already running (after cleanup)
-      const alreadyRunning = await this.isContainerRunning();
-      if (alreadyRunning) {
+      // Check if already running BEFORE cleanup to avoid killing booting containers
+      const containerStatus = await this.isContainerRunning();
+      
+      if (containerStatus.running && !containerStatus.booting) {
+        // Container is running and healthy
         this.status = 'running';
         return {
           success: true,
           message: 'LibreTranslate is already running',
           status: this.status
         };
+      } else if (containerStatus.booting) {
+        // Container is running but still booting - DO NOT KILL IT
+        this.status = 'booting';
+        Logger.logError('libreTranslate', 'Container is already booting, waiting for it to be ready...', null, {
+          containerId: containerStatus.containerId
+        });
+        
+        // Wait for it to finish booting instead of killing it
+        return {
+          success: true,
+          message: 'LibreTranslate is already starting up',
+          status: this.status,
+          booting: true
+        };
       }
+      
+      // Only clean up stopped/failed containers, not running ones
+      await this.cleanupExistingContainers(true);
 
       // Start new container with retry logic
       this.status = 'starting';

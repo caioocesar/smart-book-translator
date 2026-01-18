@@ -280,9 +280,20 @@
   color: #155724;
 }
 
+.status-indicator.booting {
+  background: #fff3cd;
+  color: #856404;
+  animation: pulse 2s ease-in-out infinite;
+}
+
 .status-indicator.offline {
   background: #f8d7da;
   color: #721c24;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .tab-container {
@@ -1622,6 +1633,12 @@
   color: #155724;
 }
 
+.local-status-modal .status-indicator-inline.booting {
+  background: #fff3cd;
+  color: #856404;
+  animation: pulse 2s ease-in-out infinite;
+}
+
 .local-status-modal .status-indicator-inline.stopped {
   background: #f8d7da;
   color: #721c24;
@@ -1634,6 +1651,43 @@
 
 .local-status-modal .status-details {
   margin-top: 1rem;
+}
+
+.booting-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff9e6;
+  border-left: 4px solid #ffa726;
+  border-radius: 8px;
+}
+
+.booting-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.container-logs {
+  margin-top: 0.75rem;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 1rem;
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85em;
+}
+
+.container-logs pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.booting-info {
+  margin-top: 0.5rem;
 }
 
 .local-status-modal .detail-row {

@@ -107,8 +107,20 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       throw new Error('Document parsed successfully but contains no text. The file might be empty or corrupted.');
     }
 
-    // Use provided chunk size or default
-    const maxChunkSize = chunkSize ? parseInt(chunkSize) : 3000;
+    // Use provided chunk size or default based on provider
+    // Local models can handle larger chunks (no API cost), cloud APIs use smaller chunks
+    let maxChunkSize;
+    const isLocalProvider = apiProvider && apiProvider.toLowerCase() === 'local';
+    
+    if (chunkSize) {
+      maxChunkSize = parseInt(chunkSize);
+    } else {
+      // Provider-aware defaults
+      maxChunkSize = isLocalProvider ? 6000 : 3000;
+    }
+    
+    Logger.logError('upload', `Using chunk size: ${maxChunkSize} chars (provider: ${apiProvider}, local: ${isLocalProvider})`, null, {});
+    
     const chunks = DocumentParser.splitIntoChunks(parsed.text, maxChunkSize);
     let htmlChunks = [];
     
@@ -135,11 +147,13 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       chunks.length
     );
 
-    // Store chunks with HTML if available
-    chunks.forEach((chunk, index) => {
-      const htmlChunk = htmlChunks[index] || null;
-      TranslationChunk.add(jobId, index, chunk, htmlChunk);
-    });
+    // Store chunks with HTML if available (use batch insert for better performance)
+    const chunkData = chunks.map((chunk, index) => ({
+      index: index,
+      sourceText: chunk,
+      sourceHtml: htmlChunks[index] || null
+    }));
+    TranslationChunk.addBatch(jobId, chunkData);
 
     // Clean up uploaded file
     if (fs.existsSync(filePath)) {
@@ -629,6 +643,17 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         
         await new Promise(resolve => setTimeout(resolve, delay));
 
+        // Mark chunk as translating (first layer)
+        TranslationChunk.updateProcessingLayer(chunk.id, 'translating');
+        io.to(`job-${jobId}`).emit('chunk-progress', {
+          jobId,
+          chunkId: chunk.id,
+          chunkIndex: chunk.chunk_index,
+          status: 'translating',
+          layer: 'translating',
+          progress: Math.round(((i) / totalChunks) * 100)
+        });
+
         // Get glossary terms - use selected IDs if provided, otherwise use all for language pair
         // Use the closure variable selectedGlossaryIds instead of job.selectedGlossaryIds
         let glossaryTerms = null;
@@ -663,6 +688,22 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
             : (Array.isArray(glossaryTerms) ? glossaryTerms : []);
 
           console.log(`📚 Passing ${localGlossaryTerms.length} glossary terms to local translation`);
+
+          // Check if LLM enhancement is enabled
+          const useLLM = apiOptions?.useLLM || false;
+          
+          // If LLM is enabled, emit status update before enhancement
+          if (useLLM) {
+            TranslationChunk.updateProcessingLayer(chunk.id, 'llm-enhancing');
+            io.to(`job-${jobId}`).emit('chunk-progress', {
+              jobId,
+              chunkId: chunk.id,
+              chunkIndex: chunk.chunk_index,
+              status: 'translating',
+              layer: 'llm-enhancing',
+              progress: Math.round(((i + 0.5) / totalChunks) * 100)
+            });
+          }
 
           result = await localTranslationService.translate(
             chunk.source_text,
@@ -704,8 +745,19 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
           'completed',
           translatedHtml
         );
+        TranslationChunk.updateProcessingLayer(chunk.id, null); // Clear layer on completion
         completed++;
         TranslationJob.updateProgress(jobId, completed, failed);
+        
+        // Emit completion status
+        io.to(`job-${jobId}`).emit('chunk-progress', {
+          jobId,
+          chunkId: chunk.id,
+          chunkIndex: chunk.chunk_index,
+          status: 'completed',
+          layer: null,
+          progress: Math.round(((i + 1) / totalChunks) * 100)
+        });
         
         // Record success in rate limiter
         rateLimiter.recordSuccess();

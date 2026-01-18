@@ -27,21 +27,28 @@ if errorlevel 1 (
 
 echo [OK] Docker is running
 echo.
-echo Cleaning up existing LibreTranslate containers (if any)...
+echo Checking for stopped/failed LibreTranslate containers...
 
-REM Remove containers by name (suppress errors if none found)
-for /f "tokens=*" %%i in ('docker ps -a --filter "name=libretranslate" --format "{{.ID}}" 2^>nul') do (
-    echo   Removing container: %%i
+REM Only remove STOPPED or EXITED containers, not running ones
+REM This prevents killing containers that are still booting
+for /f "tokens=*" %%i in ('docker ps -a --filter "name=libretranslate" --filter "status=exited" --format "{{.ID}}" 2^>nul') do (
+    echo   Removing stopped container: %%i
     docker rm -f %%i >nul 2>&1
 )
 
-REM Remove containers by image (suppress errors if none found)
-for /f "tokens=*" %%i in ('docker ps -a --filter "ancestor=libretranslate/libretranslate" --format "{{.ID}}" 2^>nul') do (
-    echo   Removing container: %%i
+for /f "tokens=*" %%i in ('docker ps -a --filter "ancestor=libretranslate/libretranslate" --filter "status=exited" --format "{{.ID}}" 2^>nul') do (
+    echo   Removing stopped container: %%i
     docker rm -f %%i >nul 2>&1
 )
 
-echo [OK] Docker cleanup completed
+REM Check if there's already a running container
+docker ps --filter "name=libretranslate" --format "{{.ID}}" 2>nul | findstr /r "." >nul
+if %errorlevel% equ 0 (
+    echo [INFO] LibreTranslate container is already running
+    echo [INFO] The backend will connect to it automatically
+) else (
+    echo [OK] No running containers found - backend will start a new one
+)
 echo.
 
 :skip_docker_cleanup

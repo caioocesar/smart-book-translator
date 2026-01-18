@@ -10,11 +10,34 @@ router.get('/status', async (req, res, next) => {
   try {
     const health = await libreTranslateManager.healthCheck();
     const status = libreTranslateManager.getStatus();
+    const dockerAvailable = await libreTranslateManager.isDockerAvailable();
+    const dockerRunning = await libreTranslateManager.isDockerRunning();
+    const containerStatus = await libreTranslateManager.isContainerRunning();
+    
+    // Determine the actual status
+    let detailedStatus = status.status || 'stopped';
+    let statusMessage = 'LibreTranslate is not running';
+    
+    if (health.running) {
+      detailedStatus = 'running';
+      statusMessage = 'LibreTranslate is running and ready';
+    } else if (containerStatus.running && containerStatus.booting) {
+      detailedStatus = 'booting';
+      statusMessage = 'LibreTranslate is starting up (downloading and loading language models - this may take 1-3 minutes)';
+    } else if (containerStatus.running && !health.running) {
+      detailedStatus = 'starting';
+      statusMessage = 'Container is running but service not ready yet';
+    }
     
     res.json({
       ...health,
       ...status,
-      dockerAvailable: await libreTranslateManager.isDockerAvailable()
+      status: detailedStatus,
+      statusMessage: statusMessage,
+      booting: containerStatus.booting,
+      dockerAvailable,
+      dockerRunning,
+      containerId: containerStatus.containerId
     });
   } catch (error) {
     next(error);
@@ -104,12 +127,51 @@ router.get('/containers', async (req, res, next) => {
   }
 });
 
+// GET /api/local-translation/logs - Get container logs
+router.get('/logs', async (req, res, next) => {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
+    // Get container ID
+    const { stdout: containerId } = await execAsync('docker ps --filter "name=libretranslate" --format "{{.ID}}"');
+    
+    if (!containerId.trim()) {
+      return res.json({
+        success: false,
+        logs: '',
+        message: 'No container found'
+      });
+    }
+    
+    // Get last 50 lines of logs
+    const { stdout: logs } = await execAsync(`docker logs ${containerId.trim()} --tail 50`);
+    
+    res.json({
+      success: true,
+      logs: logs,
+      containerId: containerId.trim()
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      logs: '',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/local-translation/resources - Get system and container resource usage
 router.get('/resources', async (req, res, next) => {
   try {
     const os = await import('os');
     
     // Get system resources
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    
     const systemResources = {
       cpu: {
         model: os.cpus()[0]?.model || 'Unknown',
@@ -117,10 +179,13 @@ router.get('/resources', async (req, res, next) => {
         usage: await getCPUUsage()
       },
       memory: {
-        total: os.totalmem(),
-        free: os.freemem(),
-        used: os.totalmem() - os.freemem(),
-        usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2)
+        total: totalMem,
+        totalGB: (totalMem / (1024 ** 3)).toFixed(2),
+        free: freeMem,
+        freeGB: (freeMem / (1024 ** 3)).toFixed(2),
+        used: usedMem,
+        usedGB: (usedMem / (1024 ** 3)).toFixed(2),
+        usagePercent: ((usedMem / totalMem) * 100).toFixed(2)
       },
       platform: os.platform(),
       arch: os.arch()
@@ -141,12 +206,14 @@ router.get('/resources', async (req, res, next) => {
         
         if (containerId.trim()) {
           // Get container stats
-          const { stdout: statsOutput } = await execAsync(`docker stats ${containerId.trim()} --no-stream --format "{{.CPUPerc}},{{.MemUsage}}"`);
-          const [cpuPerc, memUsage] = statsOutput.trim().split(',');
+          const { stdout: statsOutput } = await execAsync(`docker stats ${containerId.trim()} --no-stream --format "{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}"`);
+          const [cpuPerc, memUsage, memPerc] = statsOutput.trim().split(',');
           
           containerStats = {
-            cpu: cpuPerc,
-            memory: memUsage
+            cpu: cpuPerc || 'N/A',
+            cpuPercent: parseFloat(cpuPerc) || 0,
+            memory: memUsage || 'N/A',
+            memoryPercent: parseFloat(memPerc) || 0
           };
         }
       } catch (error) {

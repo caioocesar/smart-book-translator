@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { t } from '../utils/i18n.js';
+import ConfirmModal from './ConfirmModal.jsx';
+import NotificationModal from './NotificationModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -25,6 +27,11 @@ function HistoryTab({ settings, onTranslationReady }) {
   const [storageInfo, setStorageInfo] = useState(null);
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [showPauseSettingsModal, setShowPauseSettingsModal] = useState(false);
+  
+  // Modal states
+  const [confirmDelete, setConfirmDelete] = useState({ show: false, jobId: null });
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [notification, setNotification] = useState({ show: false, type: 'info', title: '', message: '' });
   const [pauseSettings, setPauseSettings] = useState({
     jobId: null,
     apiProvider: '',
@@ -277,19 +284,26 @@ function HistoryTab({ settings, onTranslationReady }) {
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm(t('clearAllConfirm'))) {
-      return;
-    }
-    
     try {
       await axios.delete(`${API_URL}/api/translation/clear-all`);
       setError('');
-      alert(t('clearAllSuccess'));
+      setNotification({
+        show: true,
+        type: 'success',
+        title: 'Success',
+        message: t('clearAllSuccess') || 'All translation history cleared successfully!'
+      });
       loadJobs();
       loadStorageInfo();
       setShowClearAllModal(false);
     } catch (err) {
       setError(t('clearAllFailed') + ': ' + (err.response?.data?.error || err.message));
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: t('clearAllFailed') + ': ' + (err.response?.data?.error || err.message)
+      });
     }
   };
 
@@ -423,15 +437,24 @@ function HistoryTab({ settings, onTranslationReady }) {
   };
 
   const handleDelete = async (jobId) => {
-    if (!confirm('Delete this translation job? This cannot be undone.')) {
-      return;
-    }
-
     try {
       await axios.delete(`${API_URL}/api/translation/jobs/${jobId}`);
+      setNotification({
+        show: true,
+        type: 'success',
+        title: 'Success',
+        message: 'Translation job deleted successfully!'
+      });
       loadJobs();
+      loadStorageInfo();
     } catch (err) {
       setError('Failed to delete job');
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to delete job: ' + (err.response?.data?.error || err.message)
+      });
     }
   };
 
@@ -447,7 +470,12 @@ function HistoryTab({ settings, onTranslationReady }) {
       
       // Show success message
       setTimeout(() => {
-        alert(`Partial document generated and downloaded!\n\nCompleted: ${completed}/${total} chunks\n\nFile: ${outputFilename}`);
+        setNotification({
+          show: true,
+          type: 'success',
+          title: 'Partial Document Generated',
+          message: `Partial document generated and downloaded!\n\nCompleted: ${completed}/${total} chunks\n\nFile: ${outputFilename}`
+        });
       }, 500);
       
       loadJobs();
@@ -467,7 +495,12 @@ function HistoryTab({ settings, onTranslationReady }) {
       if (response.data.outputPath) {
         setOutputPaths(prev => ({ ...prev, [jobId]: response.data.outputPath }));
       }
-      alert(`Document generated successfully!\n\nSaved to: ${response.data.outputPath || response.data.outputDirectory}/${response.data.outputFilename}`);
+      setNotification({
+        show: true,
+        type: 'success',
+        title: 'Document Generated',
+        message: `Document generated successfully!\n\nSaved to: ${response.data.outputPath || response.data.outputDirectory}/${response.data.outputFilename}`
+      });
       loadJobs();
     } catch (err) {
       setError(`Failed to generate document: ${err.response?.data?.error || err.message}`);
@@ -551,7 +584,12 @@ function HistoryTab({ settings, onTranslationReady }) {
         body: JSON.stringify({ path: directory })
       }).catch(err => {
         console.error('Failed to open directory:', err);
-        alert(`Directory: ${directory}\n\nPlease open this directory manually.`);
+        setNotification({
+          show: true,
+          type: 'info',
+          title: 'Output Directory',
+          message: `Directory: ${directory}\n\nPlease open this directory manually.`
+        });
       });
     }
   };
@@ -614,7 +652,7 @@ function HistoryTab({ settings, onTranslationReady }) {
             </div>
           )}
           <button 
-            onClick={() => setShowClearAllModal(true)}
+            onClick={() => setConfirmClearAll(true)}
             className="btn-small btn-danger"
             title={t('clearAllData')}
           >
@@ -813,7 +851,7 @@ function HistoryTab({ settings, onTranslationReady }) {
                   </button>
 
                   <button 
-                    onClick={() => handleDelete(job.id)}
+                    onClick={() => setConfirmDelete({ show: true, jobId: job.id })}
                     className="btn-small btn-danger"
                     title={t('deleteJob')}
                   >
@@ -1050,29 +1088,37 @@ function HistoryTab({ settings, onTranslationReady }) {
         </div>
       )}
 
-      {/* Clear All Modal */}
-      {showClearAllModal && (
-        <div className="modal-overlay" onClick={() => setShowClearAllModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>⚠️ {t('clearAllData')}</h3>
-            <p>{t('clearAllWarning')}</p>
-            <div className="modal-actions">
-              <button 
-                onClick={handleClearAll}
-                className="btn-danger"
-              >
-                🗑️ {t('clearAllConfirm')}
-              </button>
-              <button 
-                onClick={() => setShowClearAllModal(false)}
-                className="btn-secondary"
-              >
-                {t('cancel')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Confirmation Modals */}
+      <ConfirmModal
+        isOpen={confirmDelete.show}
+        onClose={() => setConfirmDelete({ show: false, jobId: null })}
+        onConfirm={() => handleDelete(confirmDelete.jobId)}
+        title="Delete Translation Job"
+        message="Delete this translation job? This cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+      />
+
+      <ConfirmModal
+        isOpen={confirmClearAll}
+        onClose={() => setConfirmClearAll(false)}
+        onConfirm={handleClearAll}
+        title={t('clearAllData') || 'Clear All History'}
+        message={t('clearAllWarning') || 'This will permanently delete all translation jobs and their data. This action cannot be undone.'}
+        confirmText={t('clearAllConfirm') || 'Clear All'}
+        cancelText={t('cancel') || 'Cancel'}
+        type="danger"
+      />
+
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={notification.show}
+        onClose={() => setNotification({ ...notification, show: false })}
+        title={notification.title}
+        message={notification.message}
+        type={notification.type}
+      />
 
       {/* Pause Settings Modal */}
       {showPauseSettingsModal && (

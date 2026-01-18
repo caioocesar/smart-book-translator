@@ -30,7 +30,11 @@ function TranslationTab({ settings }) {
   const [documentInfo, setDocumentInfo] = useState(null);
   const [recommendations, setRecommendations] = useState(null);
   const [analyzingDocument, setAnalyzingDocument] = useState(false);
-  const [chunkSize, setChunkSize] = useState(settings.chunkSize || 3000);
+  // Provider-aware default chunk size: 6000 for local, 3000 for cloud APIs
+  const getDefaultChunkSize = (provider) => {
+    return provider === 'local' ? 6000 : 3000;
+  };
+  const [chunkSize, setChunkSize] = useState(settings.chunkSize || getDefaultChunkSize('local'));
   const [openaiModel, setOpenaiModel] = useState(settings.openai_model || 'gpt-3.5-turbo');
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [availableGlossaries, setAvailableGlossaries] = useState([]);
@@ -56,6 +60,15 @@ function TranslationTab({ settings }) {
   });
 
   const isLocalProvider = apiProvider === 'local';
+
+  // Update chunk size when provider changes (unless user has manually set it)
+  useEffect(() => {
+    // Only auto-update if chunk size is at a default value
+    const isDefaultChunkSize = chunkSize === 3000 || chunkSize === 6000;
+    if (isDefaultChunkSize) {
+      setChunkSize(getDefaultChunkSize(apiProvider));
+    }
+  }, [apiProvider]);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -758,7 +771,7 @@ function TranslationTab({ settings }) {
             <input
               type="number"
               value={chunkSize}
-              onChange={(e) => setChunkSize(parseInt(e.target.value) || 3000)}
+              onChange={(e) => setChunkSize(parseInt(e.target.value) || (apiProvider === 'local' ? 6000 : 3000))}
               min={1000}
               max={50000}
               step={500}
@@ -766,6 +779,8 @@ function TranslationTab({ settings }) {
             <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
               {documentInfo && recommendations && recommendations[0] ? (
                 <>Recommended: {recommendations[0].recommendedChunkSize.toLocaleString()} chars (from {recommendations[0].model})</>
+              ) : apiProvider === 'local' ? (
+                <>Default: 6000 chars (local model). Local translation has no API costs, so larger chunks are more efficient.</>
               ) : (
                 <>Default: 3000 chars. Larger chunks = fewer API calls but may hit limits.</>
               )}

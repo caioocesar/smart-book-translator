@@ -300,11 +300,13 @@ async function autoStartLibreTranslate() {
       return;
     }
 
-    // Clean up existing containers BEFORE starting (prevents conflicts)
-    const existingContainers = await libreTranslateManager.getAllLibreTranslateContainers();
-    if (existingContainers.length > 0) {
-      console.log(`🧹 Found ${existingContainers.length} existing LibreTranslate container(s), cleaning up...`);
-      await libreTranslateManager.cleanupExistingContainers();
+    // Check if container is already running or booting
+    const containerStatus = await libreTranslateManager.isContainerRunning();
+    if (containerStatus.running && containerStatus.booting) {
+      console.log('🟡 LibreTranslate container is already booting');
+      console.log('   ⏳ Waiting for it to finish (this may take 1-3 minutes)...');
+      // Don't kill it, just wait for it to be ready
+      return;
     }
 
     // Start LibreTranslate with retries

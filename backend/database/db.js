@@ -37,41 +37,68 @@ function saveDatabase() {
 class DatabaseWrapper {
   constructor(database) {
     this.db = database;
+    // Avoid exporting/saving while a SQL transaction is open.
+    // sql.js export during a transaction can lead to "cannot commit - no transaction is active".
+    this._txDepth = 0;
   }
 
+  /**
+   * Execute SQL statement (for CREATE TABLE, ALTER TABLE, etc.)
+   * SQL.js exec() returns array of results, doesn't throw on success
+   */
   exec(sql) {
-    this.db.run(sql);
-    saveDatabase();
+    this.db.exec(sql);
+    if (this._txDepth === 0) {
+      saveDatabase();
+    }
   }
 
+  /**
+   * Prepare a statement for parameterized queries
+   * Returns an object with run(), get(), and all() methods
+   */
   prepare(sql) {
     const self = this;
     return {
       run(...params) {
-        self.db.run(sql, params);
-        saveDatabase();
-        return { changes: self.db.getRowsModified() };
+        const stmt = self.db.prepare(sql);
+        try {
+          stmt.bind(params);
+          stmt.step(); // Execute the statement
+          const changes = self.db.getRowsModified();
+          if (self._txDepth === 0) {
+            saveDatabase();
+          }
+          return { changes };
+        } finally {
+          stmt.free();
+        }
       },
       get(...params) {
         const stmt = self.db.prepare(sql);
-        stmt.bind(params);
-        if (stmt.step()) {
-          const result = stmt.getAsObject();
-          stmt.free();
+        try {
+          stmt.bind(params);
+          let result = undefined;
+          if (stmt.step()) {
+            result = stmt.getAsObject();
+          }
           return result;
+        } finally {
+          stmt.free();
         }
-        stmt.free();
-        return undefined;
       },
       all(...params) {
         const results = [];
         const stmt = self.db.prepare(sql);
-        stmt.bind(params);
-        while (stmt.step()) {
-          results.push(stmt.getAsObject());
+        try {
+          stmt.bind(params);
+          while (stmt.step()) {
+            results.push(stmt.getAsObject());
+          }
+          return results;
+        } finally {
+          stmt.free();
         }
-        stmt.free();
-        return results;
       }
     };
   }
@@ -79,6 +106,61 @@ class DatabaseWrapper {
   pragma(pragma) {
     // sql.js doesn't need pragma for foreign keys, it's always enabled
     return this;
+  }
+
+  /**
+   * Create a transaction wrapper for batch operations
+   * Mimics better-sqlite3's transaction API for SQL.js
+   * @param {Function} callback - Function to execute within transaction
+   * @returns {Function} Transaction executor function
+   */
+  transaction(callback) {
+    const self = this;
+    return function(items) {
+      const isOuter = self._txDepth === 0;
+      const savepointName = `sp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      try {
+        // Begin transaction / nested savepoint
+        if (isOuter) {
+          self.db.exec('BEGIN TRANSACTION');
+        } else {
+          self.db.exec(`SAVEPOINT ${savepointName}`);
+        }
+        self._txDepth += 1;
+        
+        // Execute callback with items
+        callback(items);
+        
+        // Commit / release savepoint
+        if (isOuter) {
+          self.db.exec('COMMIT');
+        } else {
+          self.db.exec(`RELEASE SAVEPOINT ${savepointName}`);
+        }
+        self._txDepth -= 1;
+        if (self._txDepth === 0) saveDatabase();
+        
+        return { changes: self.db.getRowsModified() };
+      } catch (error) {
+        // Rollback on error
+        console.error('Transaction error:', error);
+        try {
+          if (isOuter) {
+            self.db.exec('ROLLBACK');
+          } else {
+            self.db.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            self.db.exec(`RELEASE SAVEPOINT ${savepointName}`);
+          }
+        } catch (rollbackError) {
+          console.error('Rollback error:', rollbackError);
+        } finally {
+          // Ensure tx depth is decremented if we began a transaction/savepoint
+          if (self._txDepth > 0) self._txDepth -= 1;
+          if (self._txDepth === 0) saveDatabase();
+        }
+        throw error;
+      }
+    };
   }
 }
 
@@ -164,6 +246,14 @@ function initDatabase() {
   // Add next_retry_at column if it doesn't exist (for existing databases)
   try {
     db.exec(`ALTER TABLE translation_chunks ADD COLUMN next_retry_at DATETIME`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
+  
+  // Add processing_layer column if it doesn't exist (for existing databases)
+  // Values: 'translating' (first layer), 'llm-enhancing' (second layer), null (not started/completed)
+  try {
+    db.exec(`ALTER TABLE translation_chunks ADD COLUMN processing_layer TEXT`);
   } catch (e) {
     // Column already exists, ignore
   }

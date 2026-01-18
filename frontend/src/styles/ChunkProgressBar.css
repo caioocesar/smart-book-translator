@@ -49,6 +49,11 @@
   color: #856404;
 }
 
+.stat-item.llm-enhancing {
+  background: #e1bee7;
+  color: #4a148c;
+}
+
 .stat-item.percent {
   background: #667eea;
   color: white;
@@ -57,6 +62,12 @@
 
 .stat-label {
   font-weight: 600;
+}
+
+.stat-label-small {
+  font-size: 0.7rem;
+  opacity: 0.8;
+  margin-left: -0.25rem;
 }
 
 .stat-value {
@@ -124,6 +135,11 @@
   border-color: rgba(255, 193, 7, 0.3);
 }
 
+.chunk-square.llm-enhancing {
+  border-color: rgba(156, 39, 176, 0.3);
+  animation: pulse-llm 1.5s infinite;
+}
+
 .chunk-square.partial {
   border-color: rgba(253, 126, 20, 0.3);
 }
@@ -136,6 +152,17 @@
 @keyframes pulse-translating {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.1); }
+}
+
+@keyframes pulse-llm {
+  0%, 100% { 
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(156, 39, 176, 0.4);
+  }
+  50% { 
+    transform: scale(1.05);
+    box-shadow: 0 0 0 4px rgba(156, 39, 176, 0);
+  }
 }
 
 /* Tooltip */

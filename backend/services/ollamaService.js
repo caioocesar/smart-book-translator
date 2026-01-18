@@ -408,40 +408,67 @@ class OllamaService {
     // Detect if text contains HTML tags
     const hasHtmlTags = /<[^>]+>/.test(text);
     
-    let prompt = `You are a professional translator and text editor. Your task is to enhance the following ${targetLang} translation.\n\n`;
+    let prompt = `You are a professional translator and text editor. You are reviewing and enhancing a translation that has already been completed.\n\n`;
+    
+    prompt += `CONTEXT:\n`;
+    prompt += `- This text was translated from ${sourceLang} to ${targetLang} using an automated translation service\n`;
+    prompt += `- Your role is to REVIEW and IMPROVE the existing translation, not to translate from scratch\n`;
+    prompt += `- Focus on making the translation more natural, accurate, and appropriate for the target audience\n\n`;
 
     if (hasHtmlTags) {
       prompt += `⚠️ CRITICAL: This text contains HTML formatting tags. You MUST preserve ALL HTML tags exactly as they are. Do not remove, modify, or add any HTML tags.\n\n`;
     }
 
-    prompt += `Original translation:\n${text}\n\n`;
+    prompt += `TRANSLATION TO REVIEW:\n${text}\n\n`;
 
-    prompt += `Instructions:\n`;
+    prompt += `YOUR REVIEW TASKS:\n`;
 
+    let taskNumber = 1;
+    
     // Formality adjustment
     if (formality === 'formal') {
-      prompt += `1. Adjust the text to be more formal and professional. Use formal pronouns and vocabulary.\n`;
+      prompt += `${taskNumber}. FORMALITY ADJUSTMENT:\n`;
+      prompt += `   - Review the translation and adjust it to be more formal and professional\n`;
+      prompt += `   - Use formal pronouns (você, senhor/senhora for Portuguese, etc.)\n`;
+      prompt += `   - Replace casual expressions with formal vocabulary\n`;
+      prompt += `   - Maintain professional tone throughout\n`;
+      taskNumber++;
     } else if (formality === 'informal') {
-      prompt += `1. Adjust the text to be more casual and conversational. Use informal pronouns and natural language.\n`;
+      prompt += `${taskNumber}. FORMALITY ADJUSTMENT:\n`;
+      prompt += `   - Review the translation and make it more casual and conversational\n`;
+      prompt += `   - Use informal pronouns appropriate for the target language\n`;
+      prompt += `   - Replace overly formal expressions with natural, everyday language\n`;
+      prompt += `   - Make it sound like a friendly conversation\n`;
+      taskNumber++;
     } else {
-      prompt += `1. Maintain a neutral, balanced tone - neither too formal nor too casual.\n`;
+      prompt += `${taskNumber}. TONE REVIEW:\n`;
+      prompt += `   - Maintain a neutral, balanced tone - neither too formal nor too casual\n`;
+      prompt += `   - Ensure the tone is appropriate for general audiences\n`;
+      taskNumber++;
     }
 
     // Structure improvements
     if (improveStructure) {
-      prompt += `2. Improve text cohesion and coherence:\n`;
-      prompt += `   - Ensure logical flow between sentences\n`;
-      prompt += `   - Add appropriate connectors and transitions\n`;
-      prompt += `   - Fix any grammatical errors\n`;
-      prompt += `   - Improve readability and natural language flow\n`;
+      prompt += `${taskNumber}. TEXT STRUCTURE AND FLOW:\n`;
+      prompt += `   - Review and improve text cohesion and coherence\n`;
+      prompt += `   - Ensure logical flow between sentences and paragraphs\n`;
+      prompt += `   - Add appropriate connectors and transitions where needed\n`;
+      prompt += `   - Fix any grammatical errors or awkward phrasing\n`;
+      prompt += `   - Improve readability and make the language flow naturally\n`;
+      prompt += `   - Ensure the translation sounds natural in ${targetLang}\n`;
+      taskNumber++;
     }
 
     // Glossary verification
     if (verifyGlossary && glossaryTerms.length > 0) {
-      prompt += `3. Verify and correct these technical terms (use exact translations):\n`;
+      prompt += `${taskNumber}. GLOSSARY TERM VERIFICATION:\n`;
+      prompt += `   - Check that these technical terms are translated correctly:\n`;
       for (const term of glossaryTerms) {
-        prompt += `   - "${term.source_term}" should be translated as "${term.target_term}"\n`;
+        prompt += `     • "${term.source_term}" MUST be translated as "${term.target_term}"\n`;
       }
+      prompt += `   - If any term is translated incorrectly, fix it to match the glossary\n`;
+      prompt += `   - Preserve the glossary terms exactly as specified\n`;
+      taskNumber++;
     }
 
     if (hasHtmlTags) {

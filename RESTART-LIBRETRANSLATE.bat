@@ -18,32 +18,34 @@ if errorlevel 1 (
 echo [OK] Docker is running
 echo.
 
-echo Step 1: Stopping all LibreTranslate containers...
+echo Step 1: Checking LibreTranslate status...
 echo.
 
-REM Stop all LibreTranslate containers
-for /f "tokens=*" %%i in ('docker ps -q --filter "ancestor=libretranslate/libretranslate"') do (
-    echo Stopping container: %%i
-    docker stop %%i
+REM Check if container is running
+docker ps --filter "name=libretranslate" --format "{{.ID}}" 2>nul | findstr /r "." >nul
+if %errorlevel% equ 0 (
+    echo [INFO] Found running container - restarting it...
+    for /f "tokens=*" %%i in ('docker ps -q --filter "name=libretranslate"') do (
+        echo Restarting container: %%i
+        docker restart %%i
+    )
+    goto :wait_for_init
+) else (
+    echo [INFO] No running container found
 )
 
-for /f "tokens=*" %%i in ('docker ps -q --filter "name=libretranslate"') do (
-    echo Stopping container: %%i
-    docker stop %%i
-)
-
 echo.
-echo Step 2: Removing stopped containers...
+echo Step 2: Cleaning up stopped containers...
 echo.
 
-REM Remove all LibreTranslate containers
-for /f "tokens=*" %%i in ('docker ps -aq --filter "ancestor=libretranslate/libretranslate"') do (
-    echo Removing container: %%i
+REM Only remove STOPPED/EXITED containers
+for /f "tokens=*" %%i in ('docker ps -aq --filter "ancestor=libretranslate/libretranslate" --filter "status=exited"') do (
+    echo Removing stopped container: %%i
     docker rm %%i
 )
 
-for /f "tokens=*" %%i in ('docker ps -aq --filter "name=libretranslate"') do (
-    echo Removing container: %%i
+for /f "tokens=*" %%i in ('docker ps -aq --filter "name=libretranslate" --filter "status=exited"') do (
+    echo Removing stopped container: %%i
     docker rm %%i
 )
 
@@ -56,8 +58,10 @@ echo.
 echo This may take 10-30 seconds on first run (downloading image)...
 echo.
 
-REM Start new container
-docker run -d -p 5001:5000 --name libretranslate libretranslate/libretranslate
+REM Start new container with optimized settings
+docker run -d -p 5001:5000 --name libretranslate -e LT_LOAD_ONLY=en,pt,es,fr,de,it,ja,zh --restart unless-stopped libretranslate/libretranslate:latest
+
+:wait_for_init
 
 if errorlevel 1 (
     echo.

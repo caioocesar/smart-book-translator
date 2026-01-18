@@ -38,19 +38,30 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
       completed: 0,
       failed: 0,
       translating: 0,
+      'llm-enhancing': 0,
       pending: 0
     };
 
     squareChunks.forEach(chunk => {
-      statusCounts[chunk.status] = (statusCounts[chunk.status] || 0) + 1;
+      // Check processing layer for more detailed status
+      if (chunk.status === 'translating' && chunk.processing_layer === 'llm-enhancing') {
+        statusCounts['llm-enhancing'] = (statusCounts['llm-enhancing'] || 0) + 1;
+      } else {
+        statusCounts[chunk.status] = (statusCounts[chunk.status] || 0) + 1;
+      }
     });
 
     // Determine which status to display
     let status = 'pending';
+    let layer = null;
     if (statusCounts.failed > 0) {
       status = 'failed';
+    } else if (statusCounts['llm-enhancing'] > 0) {
+      status = 'llm-enhancing';
+      layer = 'llm-enhancing';
     } else if (statusCounts.translating > 0) {
       status = 'translating';
+      layer = 'translating';
     } else if (statusCounts.completed === squareChunks.length) {
       status = 'completed';
     } else if (statusCounts.completed > 0) {
@@ -62,6 +73,7 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
       startChunk,
       endChunk,
       status,
+      layer,
       statusCounts,
       chunks: squareChunks
     });
@@ -71,6 +83,7 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
     const colors = {
       pending: '#ffc107',
       translating: '#17a2b8',
+      'llm-enhancing': '#9c27b0', // Purple for LLM layer
       completed: '#28a745',
       failed: '#dc3545',
       partial: '#fd7e14'
@@ -82,11 +95,29 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
     const icons = {
       pending: '⏳',
       translating: '🔄',
+      'llm-enhancing': '🤖', // Robot icon for LLM enhancement
       completed: '✅',
       failed: '❌',
       partial: '⚠️'
     };
     return icons[status] || '●';
+  };
+
+  const getStatusLabel = (status, layer) => {
+    if (status === 'translating' && layer === 'llm-enhancing') {
+      return 'LLM Enhancing';
+    }
+    if (status === 'llm-enhancing') {
+      return 'LLM Enhancing';
+    }
+    const labels = {
+      pending: 'Pending',
+      translating: 'Translating',
+      completed: 'Completed',
+      failed: 'Failed',
+      partial: 'Partial'
+    };
+    return labels[status] || status;
   };
 
   const handleSquareClick = (square) => {
@@ -103,7 +134,8 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
   const stats = {
     completed: chunks.filter(c => c.status === 'completed').length,
     failed: chunks.filter(c => c.status === 'failed').length,
-    translating: chunks.filter(c => c.status === 'translating').length,
+    translating: chunks.filter(c => c.status === 'translating' && (!c.processing_layer || c.processing_layer === 'translating')).length,
+    'llm-enhancing': chunks.filter(c => c.status === 'translating' && c.processing_layer === 'llm-enhancing').length,
     pending: chunks.filter(c => c.status === 'pending').length
   };
 
@@ -128,7 +160,15 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
         <div className="stat-item translating">
           <span className="stat-icon">🔄</span>
           <span className="stat-value">{stats.translating}</span>
+          <span className="stat-label-small">1st Layer</span>
         </div>
+        {stats['llm-enhancing'] > 0 && (
+          <div className="stat-item llm-enhancing">
+            <span className="stat-icon">🤖</span>
+            <span className="stat-value">{stats['llm-enhancing']}</span>
+            <span className="stat-label-small">LLM</span>
+          </div>
+        )}
         <div className="stat-item pending">
           <span className="stat-icon">⏳</span>
           <span className="stat-value">{stats.pending}</span>
@@ -171,8 +211,13 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
               ❌ Failed: {squares[hoveredIndex].statusCounts.failed}
             </div>
             <div className="tooltip-stat">
-              🔄 Translating: {squares[hoveredIndex].statusCounts.translating}
+              🔄 Translating (1st Layer): {squares[hoveredIndex].statusCounts.translating}
             </div>
+            {squares[hoveredIndex].statusCounts['llm-enhancing'] > 0 && (
+              <div className="tooltip-stat">
+                🤖 LLM Enhancing (2nd Layer): {squares[hoveredIndex].statusCounts['llm-enhancing']}
+              </div>
+            )}
             <div className="tooltip-stat">
               ⏳ Pending: {squares[hoveredIndex].statusCounts.pending}
             </div>
@@ -201,7 +246,11 @@ function ChunkProgressBar({ chunks, totalChunks, onChunkClick }) {
             </div>
             <div className="legend-item">
               <div className="legend-color" style={{ backgroundColor: getStatusColor('translating') }}></div>
-              <span>Translating</span>
+              <span>Translating (1st Layer)</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-color" style={{ backgroundColor: getStatusColor('llm-enhancing') }}></div>
+              <span>LLM Enhancing (2nd Layer)</span>
             </div>
             <div className="legend-item">
               <div className="legend-color" style={{ backgroundColor: getStatusColor('pending') }}></div>

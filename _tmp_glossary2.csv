@@ -1,0 +1,8 @@
+source_term,target_term,source_language,target_language,category
+hello,olá,en,pt,greetings
+world,mundo,en,pt,general
+computer,computador,en,pt,tech
+software,software,en,pt,tech
+application,aplicação,en,pt,tech
+language,idioma,en,pt,general
+translation,tradução,en,pt,general

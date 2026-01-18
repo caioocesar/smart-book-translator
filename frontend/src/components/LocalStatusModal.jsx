@@ -7,11 +7,13 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 function LocalStatusModal({ isOpen, onClose }) {
   const [libreTranslateStatus, setLibreTranslateStatus] = useState(null);
   const [libreTranslateResources, setLibreTranslateResources] = useState(null);
+  const [libreTranslateLogs, setLibreTranslateLogs] = useState('');
   const [ollamaStatus, setOllamaStatus] = useState(null);
   const [ollamaSystemInfo, setOllamaSystemInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [startingLibreTranslate, setStartingLibreTranslate] = useState(false);
   const [startingOllama, setStartingOllama] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -35,6 +37,18 @@ function LocalStatusModal({ isOpen, onClose }) {
         setLibreTranslateResources(ltResourcesResponse.data);
       } catch (err) {
         // Non-fatal
+      }
+
+      // Load LibreTranslate logs if booting
+      if (ltStatusResponse.data.status === 'booting' || ltStatusResponse.data.status === 'starting') {
+        try {
+          const logsResponse = await axios.get(`${API_URL}/api/local-translation/logs`);
+          if (logsResponse.data.success) {
+            setLibreTranslateLogs(logsResponse.data.logs);
+          }
+        } catch (err) {
+          // Non-fatal
+        }
       }
 
       // Load Ollama status
@@ -113,8 +127,15 @@ function LocalStatusModal({ isOpen, onClose }) {
               <div className="status-section">
                 <h3>
                   🏠 LibreTranslate
-                  <span className={`status-indicator-inline ${libreTranslateStatus?.running ? 'running' : 'stopped'}`}>
-                    {libreTranslateStatus?.running ? '🟢 Running' : '🔴 Stopped'}
+                  <span className={`status-indicator-inline ${
+                    libreTranslateStatus?.running ? 'running' : 
+                    libreTranslateStatus?.status === 'booting' || libreTranslateStatus?.status === 'starting' ? 'booting' : 
+                    'stopped'
+                  }`}>
+                    {libreTranslateStatus?.running ? '🟢 Running' : 
+                     libreTranslateStatus?.status === 'booting' ? '🟡 Booting...' :
+                     libreTranslateStatus?.status === 'starting' ? '🟡 Starting...' :
+                     '🔴 Stopped'}
                   </span>
                 </h3>
 
@@ -123,6 +144,41 @@ function LocalStatusModal({ isOpen, onClose }) {
                     <strong>URL:</strong>
                     <span>{libreTranslateStatus?.url || 'http://localhost:5001'}</span>
                   </div>
+                  
+                  {libreTranslateStatus?.statusMessage && (
+                    <div className="detail-row">
+                      <strong>Status:</strong>
+                      <span className={libreTranslateStatus?.status === 'booting' || libreTranslateStatus?.status === 'starting' ? 'text-warning' : ''}>
+                        {libreTranslateStatus.statusMessage}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Show booting progress section */}
+                  {(libreTranslateStatus?.status === 'booting' || libreTranslateStatus?.status === 'starting') && (
+                    <div className="booting-section">
+                      <div className="booting-header">
+                        <strong>⏳ Startup Progress</strong>
+                        <button 
+                          className="btn-link" 
+                          onClick={() => setShowLogs(!showLogs)}
+                          style={{ fontSize: '0.9em', padding: '0.25rem 0.5rem' }}
+                        >
+                          {showLogs ? '▼ Hide Logs' : '▶ Show Logs'}
+                        </button>
+                      </div>
+                      {showLogs && libreTranslateLogs && (
+                        <div className="container-logs">
+                          <pre>{libreTranslateLogs}</pre>
+                        </div>
+                      )}
+                      <div className="booting-info">
+                        <p style={{ fontSize: '0.9em', color: '#666', marginTop: '0.5rem' }}>
+                          📥 Downloading and loading language models... This typically takes 1-3 minutes on first run.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   
                   {libreTranslateStatus?.running ? (
                     <>
@@ -150,8 +206,12 @@ function LocalStatusModal({ isOpen, onClose }) {
                                   <strong>{libreTranslateResources.system.cpu?.cores || 'N/A'}</strong>
                                 </div>
                                 <div className="resource-item">
+                                  <span>Free RAM:</span>
+                                  <strong>{libreTranslateResources.system.memory?.freeGB || 'N/A'} GB</strong>
+                                </div>
+                                <div className="resource-item">
                                   <span>Total RAM:</span>
-                                  <strong>{(libreTranslateResources.system.memory?.total / (1024 * 1024 * 1024)).toFixed(1) || 'N/A'} GB</strong>
+                                  <strong>{libreTranslateResources.system.memory?.totalGB || 'N/A'} GB</strong>
                                 </div>
                               </>
                             )}
