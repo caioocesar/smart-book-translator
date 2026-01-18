@@ -33,18 +33,19 @@ import autoRetryService from './services/autoRetryService.js';
 // Import LibreTranslate manager for auto-start
 import libreTranslateManager from './services/libreTranslateManager.js';
 
+// Startup tests are now disabled by default to avoid creating test entries in the database
+// They can be manually triggered via the /api/health/test endpoint
 async function runStartupTests() {
   console.log('\n🚀 Starting Smart Book Translator...\n');
-  const runner = new TestRunner();
-  const results = await runner.runAllTests();
+  console.log('ℹ️  Startup tests disabled (can be run manually via System Status)');
   
-  if (results.failed > 0) {
-    console.warn('⚠️  Some tests failed. System may not work correctly.');
-  } else {
-    console.log('✅ All system tests passed!\n');
-  }
-  
-  return results;
+  // Return empty results without running tests
+  return {
+    passed: 0,
+    failed: 0,
+    tests: [],
+    skipped: true
+  };
 }
 
 dotenv.config();

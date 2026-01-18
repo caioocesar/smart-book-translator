@@ -111,21 +111,35 @@ class TestRunner {
 
     // Translation Job Tests
     await this.runTest('Translation Job Creation', async () => {
-      const jobId = TranslationJob.create('test.pdf', 'en', 'es', 'deepl', 'pdf', 10);
+      const jobId = TranslationJob.create('__test__.pdf', 'en', 'es', 'deepl', 'pdf', 10);
       const job = TranslationJob.get(jobId);
-      if (!job || job.filename !== 'test.pdf') throw new Error('Job creation failed');
+      if (!job || job.filename !== '__test__.pdf') throw new Error('Job creation failed');
+      
+      // Clean up: delete chunks first, then job
+      TranslationChunk.deleteByJobId(jobId);
       TranslationJob.delete(jobId);
+      
+      // Verify deletion
+      const deletedJob = TranslationJob.get(jobId);
+      if (deletedJob) throw new Error('Job deletion failed');
     });
 
     await this.runTest('Translation Chunk Operations', async () => {
-      const jobId = TranslationJob.create('test.pdf', 'en', 'es', 'deepl', 'pdf', 2);
+      const jobId = TranslationJob.create('__test__.pdf', 'en', 'es', 'deepl', 'pdf', 2);
       const chunkId = TranslationChunk.add(jobId, 0, 'Test text');
       TranslationChunk.updateTranslation(chunkId, 'Texto de prueba', 'completed');
       const chunks = TranslationChunk.getByJob(jobId);
       if (chunks.length !== 1 || chunks[0].translated_text !== 'Texto de prueba') {
         throw new Error('Chunk operations failed');
       }
+      
+      // Clean up: delete chunks first, then job
+      TranslationChunk.deleteByJobId(jobId);
       TranslationJob.delete(jobId);
+      
+      // Verify deletion
+      const deletedJob = TranslationJob.get(jobId);
+      if (deletedJob) throw new Error('Job deletion failed');
     });
 
     // Document Parser Tests
@@ -147,6 +161,27 @@ class TestRunner {
       ApiUsage.track('test_provider', 1000, 5);
       const usage = ApiUsage.getUsageToday('test_provider');
       if (usage.characters_used < 1000) throw new Error('API usage tracking failed');
+    });
+
+    // Final cleanup: Remove any remaining test entries
+    await this.runTest('Cleanup Test Data', async () => {
+      // Delete any jobs with test filenames
+      const testJobs = db.prepare("SELECT id FROM translation_jobs WHERE filename LIKE '__test__%' OR filename LIKE 'test.%'").all();
+      for (const job of testJobs) {
+        TranslationChunk.deleteByJobId(job.id);
+        TranslationJob.delete(job.id);
+      }
+      
+      // Delete any test glossary entries
+      const testGlossary = db.prepare("SELECT id FROM glossary WHERE category = 'test'").all();
+      for (const entry of testGlossary) {
+        Glossary.delete(entry.id);
+      }
+      
+      // Delete any test settings
+      Settings.delete('test_key');
+      
+      console.log(`   Cleaned up ${testJobs.length} test job(s) and ${testGlossary.length} test glossary entries`);
     });
 
     console.log('\n========================================');

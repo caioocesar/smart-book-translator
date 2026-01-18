@@ -18,13 +18,19 @@ function DocumentInfoBox({ documentInfo, recommendations, onSelectRecommendation
   
   // Check if a recommendation matches the current selection
   const isSelected = (rec, index) => {
+    // If user clicked a card, that takes priority
     if (selectedIndex === index) return true;
+    
+    // Otherwise check if the current API provider matches
     if (selectedProvider && rec.provider === selectedProvider) {
+      // For OpenAI, also check the model
       if (rec.provider === 'openai' || rec.provider === 'chatgpt') {
         return selectedModel && rec.plan && rec.plan.includes(selectedModel);
       }
+      // For other providers, just match the provider
       return true;
     }
+    
     return false;
   };
 

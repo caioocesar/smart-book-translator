@@ -83,19 +83,45 @@ class LocalTranslationService {
         );
       }
 
+      // Determine format based on options (used by LibreTranslate)
+      const htmlMode = options.htmlMode || Settings.get('localTranslationHtmlMode') || false;
+      const format = htmlMode ? 'html' : 'text';
+      const hasHtmlTags = htmlMode && /<[^>]+>/.test(text);
+
       // Step 1: Apply glossary pre-processing
       let processedText = text;
       let placeholderMap = new Map();
       
       if (glossaryTerms && glossaryTerms.length > 0) {
-        const preProcessResult = this.glossaryProcessor.applyPreProcessing(text, glossaryTerms);
+        const preProcessResult = this.glossaryProcessor.applyPreProcessing(text, glossaryTerms, {
+          htmlMode: hasHtmlTags
+        });
         processedText = preProcessResult.processedText;
         placeholderMap = preProcessResult.placeholderMap;
       }
 
       // Step 2: Split into sentences and create batches
-      const { batches, stats: batchStats } = this.sentenceBatcher.processToBatches(processedText);
-      const batchStrings = this.sentenceBatcher.batchesToStrings(batches);
+      // IMPORTANT: If we're translating HTML, don't sentence-split/batch across tags.
+      // Send the full HTML chunk as one request to preserve formatting.
+      let batches;
+      let batchStats;
+      let batchStrings;
+      if (hasHtmlTags) {
+        batches = [[processedText]];
+        batchStrings = [processedText];
+        batchStats = {
+          totalSentences: 1,
+          totalBatches: 1,
+          avgSentencesPerBatch: '1.00',
+          avgBatchSize: String(processedText.length)
+        };
+        console.log(`✓ Batch processing (HTML): 1 chunk → 1 batch`);
+      } else {
+        const processed = this.sentenceBatcher.processToBatches(processedText);
+        batches = processed.batches;
+        batchStats = processed.stats;
+        batchStrings = this.sentenceBatcher.batchesToStrings(batches);
+      }
 
       console.log(`📦 Processing ${batchStats.totalSentences} sentences in ${batchStats.totalBatches} batches`);
 
@@ -106,10 +132,6 @@ class LocalTranslationService {
         const batchText = batchStrings[i];
         
         try {
-          // Determine format based on options
-          const htmlMode = options.htmlMode || Settings.get('localTranslationHtmlMode') || false;
-          const format = htmlMode ? 'html' : 'text';
-
           const response = await axios.post(
             `${this.url}/translate`,
             {
@@ -147,11 +169,16 @@ class LocalTranslationService {
       }
 
       // Step 4: Reconstruct text from translated batches
-      const translatedSentenceBatches = this.sentenceBatcher.stringsToSentenceBatches(
-        translatedBatches,
-        batches
-      );
-      let translatedText = this.sentenceBatcher.reconstructText(translatedSentenceBatches);
+      let translatedText;
+      if (hasHtmlTags) {
+        translatedText = translatedBatches[0] || '';
+      } else {
+        const translatedSentenceBatches = this.sentenceBatcher.stringsToSentenceBatches(
+          translatedBatches,
+          batches
+        );
+        translatedText = this.sentenceBatcher.reconstructText(translatedSentenceBatches);
+      }
 
       // Step 5: Apply glossary post-processing
       let glossaryStats = {};
@@ -272,8 +299,9 @@ class LocalTranslationService {
   normalizeLanguageCode(langCode) {
     const codeMap = {
       'en': 'en',
-      'pt': 'pt',
+      'pt': 'pt', // Brazilian Portuguese by default
       'pt-br': 'pt',
+      'pt-pt': 'pt',
       'es': 'es',
       'fr': 'fr',
       'de': 'de',
@@ -288,7 +316,36 @@ class LocalTranslationService {
       'ko': 'ko'
     };
 
-    return codeMap[langCode.toLowerCase()] || langCode.toLowerCase();
+    const normalized = codeMap[langCode.toLowerCase()] || langCode.toLowerCase();
+    const lower = String(langCode || '').toLowerCase();
+    const note =
+      lower === 'pt' || lower === 'pt-br' || lower === 'pt-pt'
+        ? ' (pt default)'
+        : '';
+    console.log(`Language code normalized: ${langCode} → ${normalized}${note}`);
+    return normalized;
+  }
+
+  /**
+   * Best-effort plain text extraction from HTML.
+   * Used when we store translated_html but still want a text preview.
+   */
+  extractTextFromHtml(html) {
+    if (!html || typeof html !== 'string') return '';
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    // Decode a few common HTML entities for nicer previews
+    return text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
   }
 
   /**

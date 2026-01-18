@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { t } from '../utils/i18n.js';
+import NotificationModal from './NotificationModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -14,6 +15,7 @@ function LocalStatusModal({ isOpen, onClose }) {
   const [startingLibreTranslate, setStartingLibreTranslate] = useState(false);
   const [startingOllama, setStartingOllama] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [notification, setNotification] = useState({ show: false, type: 'info', title: '', message: '' });
 
   useEffect(() => {
     if (isOpen) {
@@ -84,7 +86,12 @@ function LocalStatusModal({ isOpen, onClose }) {
         setTimeout(loadAllStatus, 2000);
       }
     } catch (error) {
-      alert(`Failed to start: ${error.response?.data?.message || error.message}`);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Failed to Start',
+        message: `Failed to start: ${error.response?.data?.message || error.message}`
+      });
     } finally {
       setStartingLibreTranslate(false);
     }
@@ -97,10 +104,20 @@ function LocalStatusModal({ isOpen, onClose }) {
       if (response.data.success) {
         setTimeout(loadAllStatus, 2000);
       } else {
-        alert(`Failed to start: ${response.data.message}`);
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Failed to Start',
+          message: `Failed to start: ${response.data.message}`
+        });
       }
     } catch (error) {
-      alert(`Error: ${error.response?.data?.message || error.message}`);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: `Error: ${error.response?.data?.message || error.message}`
+      });
     } finally {
       setStartingOllama(false);
     }
@@ -366,6 +383,14 @@ function LocalStatusModal({ isOpen, onClose }) {
           )}
         </div>
       </div>
+
+      <NotificationModal
+        isOpen={notification.show}
+        onClose={() => setNotification({ show: false, type: 'info', title: '', message: '' })}
+        title={notification.title}
+        message={notification.message}
+        type={notification.type}
+      />
     </div>
   );
 }

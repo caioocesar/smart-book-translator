@@ -98,7 +98,8 @@ function GlossaryTab() {
 
     try {
       const response = await axios.post(`${API_URL}/api/glossary/import`, formData);
-      setSuccess(`Imported ${response.data.count} entries`);
+      const { successful, failed, duplicates, total } = response.data;
+      setSuccess(`Import completed: ${successful} successful, ${failed} failed, ${duplicates} duplicates (${total} total)`);
       loadEntries();
     } catch (err) {
       setError(err.response?.data?.error || 'Import failed');

@@ -10,19 +10,31 @@
  * Uses 'natural' library if available, falls back to regex
  */
 
-// Try to import natural library (optional dependency)
-let natural = null;
-try {
-  natural = await import('natural');
-  console.log('✓ Using natural library for advanced sentence tokenization');
-} catch (err) {
-  console.log('ℹ Using built-in regex for sentence splitting (natural library not available)');
-}
-
 class SentenceBatcher {
   constructor(maxBatchSize = 1000) {
     this.maxBatchSize = maxBatchSize;
-    this.useNatural = !!natural;
+    this.natural = null;
+    this.naturalInitialized = false;
+    // Delimiter used to preserve sentence boundaries across translation
+    this.SENTENCE_DELIM = '⟪SBT_SENT⟫';
+    
+    // Try to load natural library asynchronously
+    this.initNatural();
+  }
+
+  /**
+   * Initialize natural library (async, non-blocking)
+   */
+  async initNatural() {
+    try {
+      const naturalModule = await import('natural');
+      this.natural = naturalModule.default || naturalModule;
+      this.naturalInitialized = true;
+      console.log('✓ Using natural library for advanced sentence tokenization');
+    } catch (err) {
+      console.log('ℹ Using built-in regex for sentence splitting (natural library not available)');
+      this.naturalInitialized = true;
+    }
   }
 
   /**
@@ -36,13 +48,17 @@ class SentenceBatcher {
     }
 
     // Use natural library if available (more accurate)
-    if (this.useNatural && natural) {
+    if (this.natural && this.naturalInitialized) {
       try {
-        const tokenizer = new natural.SentenceTokenizer();
-        const sentences = tokenizer.tokenize(text);
-        return sentences
-          .map(s => s.trim())
-          .filter(s => s.length > 0);
+        // Access SentenceTokenizer from the natural module
+        const SentenceTokenizer = this.natural.SentenceTokenizer;
+        if (SentenceTokenizer) {
+          const tokenizer = new SentenceTokenizer();
+          const sentences = tokenizer.tokenize(text);
+          return sentences
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+        }
       } catch (err) {
         console.warn('Natural library failed, falling back to regex:', err.message);
         // Fall through to regex method
@@ -161,7 +177,10 @@ class SentenceBatcher {
    * @returns {Array} Array of batch strings
    */
   batchesToStrings(batches) {
-    return batches.map(batch => batch.join(' ').trim());
+    // Use a delimiter that is unlikely to be translated/modified
+    // to preserve exact sentence boundaries after translation.
+    const delim = ` ${this.SENTENCE_DELIM} `;
+    return batches.map(batch => batch.join(delim).trim());
   }
 
   /**
@@ -173,14 +192,23 @@ class SentenceBatcher {
    */
   stringsToSentenceBatches(translatedStrings, originalBatches) {
     const result = [];
+    const delim = this.SENTENCE_DELIM;
+    const escaped = delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Allow surrounding whitespace around delimiter, just in case.
+    const delimRegex = new RegExp(`\\s*${escaped}\\s*`, 'g');
 
     for (let i = 0; i < translatedStrings.length; i++) {
       const translatedString = translatedStrings[i];
       const originalBatch = originalBatches[i] || [];
       const expectedSentenceCount = originalBatch.length;
 
-      // Try to split back into the same number of sentences
-      const sentences = this.splitIntoSentences(translatedString);
+      // Prefer delimiter-based split (stable across translation).
+      const byDelim = translatedString
+        ? translatedString.split(delimRegex).map(s => s.trim()).filter(Boolean)
+        : [];
+
+      // Fallback: Try to split back into sentences (heuristic, can mismatch after translation)
+      const sentences = byDelim.length > 1 ? byDelim : this.splitIntoSentences(translatedString);
 
       // If we got the expected number of sentences, use them
       // Otherwise, use the whole translated string as one sentence

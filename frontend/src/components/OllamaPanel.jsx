@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { t } from '../utils/i18n.js';
+import NotificationModal from './NotificationModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -12,6 +13,7 @@ function OllamaPanel() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [notification, setNotification] = useState({ show: false, type: 'info', title: '', message: '' });
 
   useEffect(() => {
     loadStatus();
@@ -21,6 +23,18 @@ function OllamaPanel() {
     const interval = setInterval(loadStatus, 30000); // Every 30s (reduced from 10s)
     return () => clearInterval(interval);
   }, []);
+
+  // Poll system info while expanded + running (resource usage updates)
+  useEffect(() => {
+    if (!showAdvanced) return;
+    if (!status?.running) return;
+
+    const interval = setInterval(() => {
+      loadSystemInfo();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [showAdvanced, status?.running]);
 
   const loadStatus = async () => {
     try {
@@ -49,13 +63,28 @@ function OllamaPanel() {
       const response = await axios.post(`${API_URL}/api/ollama/start`);
       
       if (response.data.success) {
-        alert('✓ Ollama started successfully!');
+        setNotification({
+          show: true,
+          type: 'success',
+          title: 'Success',
+          message: '✓ Ollama started successfully!'
+        });
         await loadStatus();
       } else {
-        alert(`Failed to start: ${response.data.message}`);
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Failed to Start',
+          message: `Failed to start: ${response.data.message}`
+        });
       }
     } catch (error) {
-      alert(`Error: ${error.message}`);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: `Error: ${error.message}`
+      });
     } finally {
       setLoading(false);
     }
@@ -73,13 +102,28 @@ function OllamaPanel() {
       });
 
       if (response.data.success) {
-        alert('✓ Model downloaded successfully!');
+        setNotification({
+          show: true,
+          type: 'success',
+          title: 'Success',
+          message: '✓ Model downloaded successfully!'
+        });
         await loadStatus();
       } else {
-        alert(`Failed to download model: ${response.data.message}`);
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Download Failed',
+          message: `Failed to download model: ${response.data.message}`
+        });
       }
     } catch (error) {
-      alert(`Error: ${error.message}`);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: `Error: ${error.message}`
+      });
     } finally {
       setDownloading(false);
     }
@@ -291,16 +335,28 @@ function OllamaPanel() {
                     <h5 style={{ margin: '0 0 8px 0', color: '#1565c0' }}>💻 Current Resource Usage</h5>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '0.9em' }}>
                       <div style={{ padding: '6px', background: 'white', borderRadius: '4px' }}>
-                        <strong>CPU:</strong> {systemInfo.cpu.usage}%
+                        <strong>CPU:</strong> {systemInfo.cpu?.usage ?? 'N/A'}%
                       </div>
                       <div style={{ padding: '6px', background: 'white', borderRadius: '4px' }}>
-                        <strong>RAM:</strong> {systemInfo.memory.usagePercent}%
+                        <strong>RAM:</strong> {systemInfo.memory?.usagePercent ?? systemInfo.memoryUsagePercent ?? 'N/A'}%
                       </div>
                       <div style={{ padding: '6px', background: 'white', borderRadius: '4px' }}>
-                        <strong>Free RAM:</strong> {(systemInfo.memory.free / (1024 * 1024 * 1024)).toFixed(1)} GB
+                        <strong>Free RAM:</strong>{' '}
+                        {systemInfo.memory?.free
+                          ? (systemInfo.memory.free / (1024 * 1024 * 1024)).toFixed(1)
+                          : systemInfo.freeMemory
+                            ? (systemInfo.freeMemory / (1024 * 1024 * 1024)).toFixed(1)
+                            : 'N/A'}{' '}
+                        GB
                       </div>
                       <div style={{ padding: '6px', background: 'white', borderRadius: '4px' }}>
-                        <strong>Used RAM:</strong> {(systemInfo.memory.used / (1024 * 1024 * 1024)).toFixed(1)} GB
+                        <strong>Used RAM:</strong>{' '}
+                        {systemInfo.memory?.used
+                          ? (systemInfo.memory.used / (1024 * 1024 * 1024)).toFixed(1)
+                          : systemInfo.totalMemory && systemInfo.freeMemory
+                            ? ((systemInfo.totalMemory - systemInfo.freeMemory) / (1024 * 1024 * 1024)).toFixed(1)
+                            : 'N/A'}{' '}
+                        GB
                       </div>
                     </div>
                     <p style={{ fontSize: '0.8em', color: '#666', marginTop: '8px', marginBottom: 0 }}>
@@ -336,6 +392,14 @@ function OllamaPanel() {
           </ul>
         </div>
       </div>
+
+      <NotificationModal
+        isOpen={notification.show}
+        onClose={() => setNotification({ show: false, type: 'info', title: '', message: '' })}
+        title={notification.title}
+        message={notification.message}
+        type={notification.type}
+      />
     </div>
   );
 }

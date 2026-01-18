@@ -24,6 +24,8 @@ class OllamaService {
     this.status = 'unknown';
     this.installedModels = [];
     this.systemInfo = null;
+    // Used for CPU usage sampling between requests
+    this._lastCpuSample = null;
   }
 
   /**
@@ -250,7 +252,7 @@ class OllamaService {
    */
   async downloadModel(modelName, progressCallback = null) {
     try {
-      Logger.logError('ollama', `Starting download of model: ${modelName}`, null, {});
+      Logger.logInfo('ollama', `Starting download of model: ${modelName}`, {});
 
       // Use streaming to get progress updates
       const response = await axios.post(
@@ -290,7 +292,7 @@ class OllamaService {
         });
 
         response.data.on('end', () => {
-          Logger.logError('ollama', `Model download completed: ${modelName}`, null, {});
+          Logger.logInfo('ollama', `Model download completed: ${modelName}`, {});
           resolve({
             success: true,
             message: `Model ${modelName} downloaded successfully`,
@@ -352,30 +354,107 @@ class OllamaService {
         formality,
         improveStructure,
         verifyGlossary,
-        glossaryTerms
+        glossaryTerms,
+        { outputJson: true }
       );
 
-      // Call Ollama API
-      const response = await axios.post(
-        `${this.baseUrl}/api/generate`,
-        {
+      const callOllama = async (promptText, generationOptions = {}, useStructuredOutput = true) => {
+        const body = {
           model: modelToUse,
-          prompt: prompt,
+          prompt: promptText,
           stream: false,
           options: {
-            temperature: 0.3, // Lower temperature for more consistent output
-            top_p: 0.9
+            temperature: generationOptions.temperature ?? 0.3,
+            top_p: generationOptions.top_p ?? 0.9
           }
-        },
-        {
-          timeout: 120000 // 2 minutes timeout
-        }
-      );
+        };
 
-      const enhancedText = response.data.response.trim();
+        // Structured output helps ensure we only get the text (no commentary).
+        // If the server/model doesn't support it, we'll fall back to plain text.
+        if (useStructuredOutput) {
+          body.format = {
+            type: 'object',
+            properties: {
+              text: { type: 'string' }
+            },
+            required: ['text']
+          };
+        }
+
+        try {
+          const response = await axios.post(`${this.baseUrl}/api/generate`, body, { timeout: 120000 });
+          const raw = (response.data?.response ?? '').trim();
+
+          if (useStructuredOutput) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed.text === 'string') return parsed.text.trim();
+            } catch {
+              // Fall back to raw if parsing fails
+            }
+          }
+          return raw;
+        } catch (err) {
+          // If structured output isn't supported, retry once without `format`
+          const msg = err?.response?.data?.error || err?.message || '';
+          const shouldFallback =
+            useStructuredOutput &&
+            (String(msg).toLowerCase().includes('format') ||
+              err?.response?.status === 400);
+          if (shouldFallback) {
+            const response = await axios.post(
+              `${this.baseUrl}/api/generate`,
+              { ...body, format: undefined },
+              { timeout: 120000 }
+            );
+            return (response.data?.response ?? '').trim();
+          }
+          throw err;
+        }
+      };
+
+      // Attempt 1 (normal)
+      let enhancedText = await callOllama(prompt, { temperature: 0.3, top_p: 0.9 }, true);
+      enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
+      enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang); // run twice to catch multi-line prefixes
+
+      const invalid = this.isInvalidEnhancement(enhancedText, translatedText);
+
+      // Validate language/quality and retry once if needed.
+      const isEnglishLeak = this.detectEnglishLeakage(enhancedText, targetLang);
+      if (isEnglishLeak || invalid) {
+        const strictPrompt = this.buildEnhancementPrompt(
+          translatedText,
+          sourceLang,
+          targetLang,
+          formality,
+          improveStructure,
+          verifyGlossary,
+          glossaryTerms,
+          { strictLanguage: true, outputJson: true }
+        );
+        enhancedText = await callOllama(strictPrompt, { temperature: 0.0, top_p: 0.1 }, true);
+        enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
+        enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
+      }
+
+      // If still invalid after retry, fail closed (keep original translation).
+      if (this.isInvalidEnhancement(enhancedText, translatedText)) {
+        return {
+          success: false,
+          error: 'LLM output looked like meta text or a list, not a real translation',
+          originalText: translatedText
+        };
+      }
+
+      // Enforce glossary after LLM (prevents the LLM from undoing glossary work).
+      if (Array.isArray(glossaryTerms) && glossaryTerms.length > 0) {
+        enhancedText = this.enforceGlossaryTerms(enhancedText, glossaryTerms);
+      }
+
       const duration = Date.now() - startTime;
 
-      Logger.logError('ollama', 'Translation enhanced successfully', null, {
+      Logger.logInfo('ollama', 'Translation enhanced successfully', {
         model: modelToUse,
         duration,
         originalLength: translatedText.length,
@@ -404,22 +483,64 @@ class OllamaService {
    * Build enhancement prompt based on options
    * @private
    */
-  buildEnhancementPrompt(text, sourceLang, targetLang, formality, improveStructure, verifyGlossary, glossaryTerms) {
+  buildEnhancementPrompt(text, sourceLang, targetLang, formality, improveStructure, verifyGlossary, glossaryTerms, extra = {}) {
     // Detect if text contains HTML tags
     const hasHtmlTags = /<[^>]+>/.test(text);
+    
+    // Map language codes to full names for better LLM understanding
+    const languageNames = {
+      'en': 'English',
+      'pt': 'Brazilian Portuguese',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'ru': 'Russian',
+      'ja': 'Japanese',
+      'zh': 'Chinese',
+      'ar': 'Arabic'
+    };
+    
+    const sourceLanguageName = languageNames[sourceLang] || sourceLang;
+    const targetLanguageName = languageNames[targetLang] || targetLang;
+    const targetLower = String(targetLang || '').toLowerCase();
     
     let prompt = `You are a professional translator and text editor. You are reviewing and enhancing a translation that has already been completed.\n\n`;
     
     prompt += `CONTEXT:\n`;
-    prompt += `- This text was translated from ${sourceLang} to ${targetLang} using an automated translation service\n`;
-    prompt += `- Your role is to REVIEW and IMPROVE the existing translation, not to translate from scratch\n`;
-    prompt += `- Focus on making the translation more natural, accurate, and appropriate for the target audience\n\n`;
+    prompt += `- This text was translated from ${sourceLanguageName} to ${targetLanguageName} using an automated translation service\n`;
+    prompt += `- Your role is to REVIEW and IMPROVE the existing ${targetLanguageName} translation, not to translate from scratch\n`;
+    prompt += `- Focus on making the ${targetLanguageName} translation more natural, accurate, and appropriate for the target audience\n`;
+    prompt += `- IMPORTANT: The text below is ALREADY in ${targetLanguageName}. Do NOT translate it back to ${sourceLanguageName}!\n\n`;
+    prompt += `- CRITICAL: Output must be written entirely in ${targetLanguageName}. If any English remains, translate it into ${targetLanguageName}.\n`;
+    if (extra?.strictLanguage) {
+      prompt += `- STRICT MODE: Do not leave any English words except proper nouns. Rewrite any remaining English into ${targetLanguageName}.\n`;
+    }
+    prompt += `\n`;
+
+    // Portuguese (Brazil) consistency rules (fixes issues like "tua" vs "sua", "demasiado", agreement errors, etc.)
+    if (targetLower === 'pt' || targetLower === 'pt-br' || targetLanguageName.toLowerCase().includes('brazilian portuguese')) {
+      prompt += `BRAZILIAN PORTUGUESE STYLE GUIDE:\n`;
+      prompt += `- Use Brazilian Portuguese (pt-BR), not European Portuguese.\n`;
+      prompt += `- Pronouns: prefer "você" and possessives "seu/sua/seus/suas". Avoid "tu/teu/tua" unless the source clearly uses that register.\n`;
+      prompt += `- Avoid Europeanisms like "demasiado" when "demais" fits naturally.\n`;
+      prompt += `- Fix agreement errors (singular/plural, gender): e.g., "bons homens" -> "bons", and keep adjectives consistent.\n`;
+      prompt += `- Fix possessive constructions and prepositions to sound natural: e.g., prefer "a porta de Al'Thor" over overly literal or awkward forms.\n`;
+      prompt += `- Keep proper names unchanged (do not translate names).\n\n`;
+    }
 
     if (hasHtmlTags) {
       prompt += `⚠️ CRITICAL: This text contains HTML formatting tags. You MUST preserve ALL HTML tags exactly as they are. Do not remove, modify, or add any HTML tags.\n\n`;
     }
 
     prompt += `TRANSLATION TO REVIEW:\n${text}\n\n`;
+
+    if (extra?.outputJson) {
+      prompt += `RESPONSE FORMAT:\n`;
+      prompt += `- Return ONLY a valid JSON object with a single key \"text\".\n`;
+      prompt += `- The value of \"text\" MUST be the final improved translation (no preface, no explanations).\n`;
+      prompt += `- Example: {\"text\":\"...\"}\n\n`;
+    }
 
     prompt += `YOUR REVIEW TASKS:\n`;
 
@@ -455,7 +576,7 @@ class OllamaService {
       prompt += `   - Add appropriate connectors and transitions where needed\n`;
       prompt += `   - Fix any grammatical errors or awkward phrasing\n`;
       prompt += `   - Improve readability and make the language flow naturally\n`;
-      prompt += `   - Ensure the translation sounds natural in ${targetLang}\n`;
+      prompt += `   - Ensure the translation sounds natural in ${targetLanguageName}\n`;
       taskNumber++;
     }
 
@@ -486,6 +607,131 @@ class OllamaService {
   }
 
   /**
+   * Remove common meta-prefaces the model sometimes adds.
+   * @private
+   */
+  sanitizeEnhancedText(text, targetLang) {
+    if (!text || typeof text !== 'string') return text;
+    let out = text.trim();
+
+    // Strip invisible leading characters
+    out = out.replace(/^[\uFEFF\u200B-\u200D\u2060]+/g, '').trim();
+
+    // Remove code fences if any
+    out = out.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+    // Remove common leading meta lines / prefixes
+    const patterns = [
+      /^here('?s)?\s+is\s+(the\s+)?(enhanced|improved)\s+(translation|tradu[cç][aã]o|texto).*?:\s*/i,
+      /^(enhanced|improved)\s+(translation|tradu[cç][aã]o|texto).*?:\s*/i,
+      /^(tradu[cç][aã]o|texto)\s+(aprimorad[oa]|melhorad[oa]).*?:\s*/i
+    ];
+    for (const re of patterns) {
+      if (re.test(out)) {
+        out = out.replace(re, '').trim();
+        break;
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Detect when the model returned meta text / lists instead of a real enhanced translation.
+   * @private
+   */
+  isInvalidEnhancement(enhanced, original) {
+    try {
+      const e = String(enhanced || '').trim().toLowerCase();
+      const o = String(original || '').trim().toLowerCase();
+      if (!e) return true;
+
+      // Meta prefixes (even if sanitization missed them)
+      const meta = /(here('?s)?\s+is\s+the\s+(enhanced|improved)|enhanced\s+tradu|tradu[cç][aã]o\s+aprimorad|improved\s+translation)/i;
+      if (meta.test(e)) return true;
+
+      // Looks like a numbered list that wasn't in the original
+      const listItems = (e.match(/\b\d+\.\s+/g) || []).length;
+      const originalListItems = (o.match(/\b\d+\.\s+/g) || []).length;
+      if (listItems >= 2 && originalListItems === 0) return true;
+
+      // If output is dramatically shorter or longer, it's suspicious
+      const ratio = enhanced.length / Math.max(1, original.length);
+      if (ratio < 0.5 || ratio > 1.8) return true;
+
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Detect if output contains significant English leakage when target != English.
+   * @private
+   */
+  detectEnglishLeakage(text, targetLang) {
+    try {
+      const tl = String(targetLang || '').toLowerCase();
+      if (!tl || tl === 'en' || tl.startsWith('en-')) return false;
+
+      const stripped = String(text || '')
+        .replace(/<[^>]+>/g, ' ')
+        .toLowerCase();
+
+      const words = stripped.match(/[a-z]+/g) || [];
+      if (words.length < 30) return false;
+
+      // Avoid ambiguous 1-2 letter tokens; focus on strong English function words
+      const englishStop = new Set([
+        'the', 'and', 'that', 'this', 'these', 'those', 'with', 'from', 'into', 'over', 'under',
+        'for', 'about', 'because', 'while', 'where', 'when', 'what', 'which', 'who', 'whom',
+        'is', 'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had', 'will', 'would',
+        'can', 'could', 'should', 'may', 'might', 'must', 'not', 'but', 'also', 'there', 'here',
+        'your', 'their', 'them', 'they', 'you', 'we', 'our'
+      ]);
+
+      let hits = 0;
+      for (const w of words) {
+        if (englishStop.has(w)) hits++;
+      }
+
+      const ratio = hits / words.length;
+      // Heuristic: enough English stopwords to indicate the text is drifting into English
+      return hits >= 6 && ratio >= 0.02;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Enforce glossary terms after LLM processing (best-effort).
+   * @private
+   */
+  enforceGlossaryTerms(text, glossaryTerms) {
+    if (!text) return text;
+    const hasHtmlTags = /<[^>]+>/.test(text);
+
+    const replaceOutsideTags = (input, regex, replacement) => {
+      if (!hasHtmlTags) return input.replace(regex, replacement);
+      return input
+        .split(/(<[^>]+>)/g)
+        .map(part => (part.startsWith('<') && part.endsWith('>') ? part : part.replace(regex, replacement)))
+        .join('');
+    };
+
+    let out = text;
+    for (const term of glossaryTerms) {
+      const source = term?.source_term;
+      const target = term?.target_term;
+      if (!source || !target) continue;
+      const escaped = String(source).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+      out = replaceOutsideTags(out, regex, target);
+    }
+    return out;
+  }
+
+  /**
    * Detect changes between original and enhanced text
    * @private
    */
@@ -505,15 +751,33 @@ class OllamaService {
    */
   async getSystemInfo() {
     try {
+      const cpuUsage = this.getCpuUsagePercent();
+      const totalMemory = os.totalmem();
+      const freeMemory = os.freemem();
+      const usedMemory = totalMemory - freeMemory;
+      const memoryUsagePercent = ((1 - freeMemory / totalMemory) * 100).toFixed(2);
+
       const info = {
         platform: os.platform(),
         arch: os.arch(),
         cpus: os.cpus(),
         cpuModel: os.cpus()[0]?.model || 'Unknown',
         cpuCores: os.cpus().length,
-        totalMemory: os.totalmem(),
-        freeMemory: os.freemem(),
-        memoryUsagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2),
+        totalMemory,
+        freeMemory,
+        memoryUsagePercent,
+        // Normalized objects expected by the frontend panels
+        cpu: {
+          model: os.cpus()[0]?.model || 'Unknown',
+          cores: os.cpus().length,
+          usage: cpuUsage === null ? 'N/A' : cpuUsage.toFixed(1)
+        },
+        memory: {
+          total: totalMemory,
+          free: freeMemory,
+          used: usedMemory,
+          usagePercent: memoryUsagePercent
+        },
         gpu: await this.detectGPU(),
         ollamaInstalled: await this.isInstalled(),
         ollamaRunning: await this.isRunning(),
@@ -528,6 +792,44 @@ class OllamaService {
       return info;
     } catch (error) {
       Logger.logError('ollama', 'Failed to get system info', error, {});
+      return null;
+    }
+  }
+
+  /**
+   * Estimate total CPU usage % between calls (all cores).
+   * Returns null on first sample.
+   * @private
+   */
+  getCpuUsagePercent() {
+    try {
+      const cpus = os.cpus();
+      const now = Date.now();
+
+      let idle = 0;
+      let total = 0;
+      for (const cpu of cpus) {
+        const times = cpu.times || {};
+        const cpuIdle = times.idle || 0;
+        const cpuTotal = (times.user || 0) + (times.nice || 0) + (times.sys || 0) + (times.idle || 0) + (times.irq || 0);
+        idle += cpuIdle;
+        total += cpuTotal;
+      }
+
+      const sample = { idle, total, ts: now };
+      const prev = this._lastCpuSample;
+      this._lastCpuSample = sample;
+
+      if (!prev) return null;
+
+      const idleDelta = sample.idle - prev.idle;
+      const totalDelta = sample.total - prev.total;
+      if (totalDelta <= 0) return null;
+
+      const usage = (1 - idleDelta / totalDelta) * 100;
+      // Clamp to sane bounds
+      return Math.max(0, Math.min(100, usage));
+    } catch {
       return null;
     }
   }

@@ -137,6 +137,17 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       throw new Error('Could not split document into chunks. The document might be too small or contain only whitespace.');
     }
 
+    // Check for duplicate active jobs with same filename
+    const duplicateJobs = TranslationJob.findActiveDuplicates(req.file.originalname);
+    if (duplicateJobs.length > 0) {
+      Logger.logInfo('translation', `Found ${duplicateJobs.length} active job(s) with same filename`, {
+        filename: req.file.originalname,
+        duplicateJobIds: duplicateJobs.map(j => j.id),
+        note: 'User may want to cancel old job before starting new one'
+      });
+      // Note: We allow duplicates - user can manage them via the History tab
+    }
+
     // Create translation job
     const jobId = TranslationJob.create(
       req.file.originalname,
@@ -644,6 +655,7 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
         await new Promise(resolve => setTimeout(resolve, delay));
 
         // Mark chunk as translating (first layer)
+        TranslationChunk.updateStatus(chunk.id, 'translating');
         TranslationChunk.updateProcessingLayer(chunk.id, 'translating');
         io.to(`job-${jobId}`).emit('chunk-progress', {
           jobId,
@@ -705,14 +717,23 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
             });
           }
 
+          const useHtml = !!apiOptions?.htmlMode && !!chunk.source_html;
+          const inputForLocal = useHtml ? chunk.source_html : chunk.source_text;
+
           result = await localTranslationService.translate(
-            chunk.source_text,
+            inputForLocal,
             job.source_language,
             job.target_language,
             localGlossaryTerms,
             apiOptions // Pass options including htmlMode, useLLM, formality, etc.
           );
-          finalTranslatedText = result?.translatedText || chunk.source_text;
+          const translated = result?.translatedText || inputForLocal;
+          if (useHtml) {
+            translatedHtml = translated;
+            finalTranslatedText = localTranslationService.extractTextFromHtml(translatedHtml);
+          } else {
+            finalTranslatedText = translated;
+          }
         } else {
           result = await translationService.translate(
             chunk.source_text,

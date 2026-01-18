@@ -280,7 +280,35 @@ class ApiPlansService {
   static recommendApi(documentSize, characterCount, hasGlossary = false) {
     const recommendations = [];
     
-    // DeepL recommendations - always show DeepL as an option
+    // 1. Local LibreTranslate (FIRST - 100% free, no limits, runs locally)
+    recommendations.push({
+      provider: 'local',
+      plan: 'libretranslate',
+      model: 'Local (LibreTranslate)',
+      reason: '100% free and runs on your machine (requires LibreTranslate; Docker recommended)',
+      estimatedChunks: Math.ceil(characterCount / 3000),
+      recommendedChunkSize: 3000,
+      supportsGlossary: true,
+      supportsHtml: false,
+      cost: 0,
+      warning: 'Quality may be lower than DeepL; requires local service running'
+    });
+    
+    // 2. Google Translate (SECOND - Free, no setup required)
+    recommendations.push({
+      provider: 'google',
+      plan: 'free',
+      model: 'Google Translate (Free)',
+      reason: 'Free but may be rate-limited',
+      estimatedChunks: Math.ceil(characterCount / 3000),
+      recommendedChunkSize: 3000,
+      supportsGlossary: false,
+      supportsHtml: false,
+      cost: 0,
+      warning: 'May be blocked after heavy usage'
+    });
+    
+    // 3. DeepL recommendations - show DeepL as an option
     const deeplFree = DEFAULT_PLANS.deepl.free;
     const deeplStarter = DEFAULT_PLANS.deepl.starter;
     const deeplAdvanced = DEFAULT_PLANS.deepl.advanced;
@@ -426,66 +454,13 @@ class ApiPlansService {
       }
     }
     
-    // Google Translate (always available)
-    recommendations.push({
-      provider: 'google',
-      plan: 'free',
-      model: 'Google Translate (Free)',
-      reason: 'Free but may be rate-limited',
-      estimatedChunks: Math.ceil(characterCount / 3000),
-      recommendedChunkSize: 3000,
-      supportsGlossary: false,
-      supportsHtml: false,
-      cost: 0,
-      warning: 'May be blocked after heavy usage'
-    });
-
-    // Local LibreTranslate (always an option if user wants fully local/free)
-    recommendations.push({
-      provider: 'local',
-      plan: 'libretranslate',
-      model: 'Local (LibreTranslate)',
-      reason: '100% free and runs on your machine (requires LibreTranslate; Docker recommended)',
-      estimatedChunks: Math.ceil(characterCount / 3000),
-      recommendedChunkSize: 3000,
-      supportsGlossary: true,
-      supportsHtml: false,
-      cost: 0,
-      warning: 'Quality may be lower than DeepL; requires local service running'
-    });
-    
-    // Sort by cost (free first), then by quality, but ensure DeepL is always visible
-    recommendations.sort((a, b) => {
-      // Prioritize DeepL - always show at least one DeepL option in top 3
-      const aIsDeepL = a.provider === 'deepl';
-      const bIsDeepL = b.provider === 'deepl';
-      
-      // If one is DeepL and we don't have DeepL in top 3 yet, prioritize it
-      if (aIsDeepL && !bIsDeepL) {
-        // Check if we already have DeepL in recommendations (will be checked by frontend)
-        return -1;
-      }
-      if (bIsDeepL && !aIsDeepL) {
-        return 1;
-      }
-      
-      // Otherwise sort by cost
-      if (a.cost === 0 && b.cost > 0) return -1;
-      if (b.cost === 0 && a.cost > 0) return 1;
-      return a.cost - b.cost;
-    });
-    
-    // Ensure at least one DeepL recommendation is in the top 3
-    const top3HasDeepL = recommendations.slice(0, 3).some(r => r.provider === 'deepl');
-    if (!top3HasDeepL) {
-      // Find first DeepL recommendation and move it to position 1 or 2
-      const deeplIndex = recommendations.findIndex(r => r.provider === 'deepl');
-      if (deeplIndex > 0) {
-        const deeplRec = recommendations.splice(deeplIndex, 1)[0];
-        // Insert at position 1 (after first recommendation, which is usually best choice)
-        recommendations.splice(1, 0, deeplRec);
-      }
-    }
+    // Note: Local and Google are already added at the top
+    // No sorting needed - recommendations are already in priority order:
+    // 1. Local (LibreTranslate) - 100% free, unlimited
+    // 2. Google Translate - Free, no setup
+    // 3. DeepL Free - Best quality free option
+    // 4. DeepL Pro plans - Paid options
+    // 5. OpenAI models - Paid AI options
     
     return recommendations;
   }

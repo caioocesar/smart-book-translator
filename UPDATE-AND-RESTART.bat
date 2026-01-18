@@ -1,10 +1,61 @@
 @echo off
 chcp 65001 >nul
-title Smart Book Translator - Launcher
+title Smart Book Translator - Update and Restart
 echo.
 echo ========================================
-echo   SMART BOOK TRANSLATOR - LAUNCHER
+echo   SMART BOOK TRANSLATOR - UPDATE
 echo ========================================
+echo.
+echo This script will:
+echo   1. Stop running servers
+echo   2. Rebuild the frontend
+echo   3. Restart the application
+echo.
+echo Please wait...
+echo.
+
+REM Step 1: Stop running servers
+echo [1/3] Stopping running servers...
+echo.
+
+REM Kill any running node processes for this app
+tasklist /FI "WINDOWTITLE eq Backend Server*" 2>nul | find /I /N "cmd.exe">nul
+if "%ERRORLEVEL%"=="0" (
+    echo   Stopping Backend Server...
+    taskkill /FI "WINDOWTITLE eq Backend Server*" /F >nul 2>&1
+)
+
+tasklist /FI "WINDOWTITLE eq Frontend Dev Server*" 2>nul | find /I /N "cmd.exe">nul
+if "%ERRORLEVEL%"=="0" (
+    echo   Stopping Frontend Dev Server...
+    taskkill /FI "WINDOWTITLE eq Frontend Dev Server*" /F >nul 2>&1
+)
+
+REM Give processes time to close
+timeout /t 2 /nobreak >nul
+echo   [OK] Servers stopped
+echo.
+
+REM Step 2: Rebuild frontend (this picks up the latest code changes)
+echo [2/3] Rebuilding frontend with latest changes...
+echo.
+echo   This will take 10-30 seconds...
+echo.
+
+cd /d "%~dp0frontend"
+call npm run build >nul 2>&1
+
+if errorlevel 1 (
+    echo   [WARNING] Frontend build had some warnings, but continuing...
+) else (
+    echo   [OK] Frontend rebuilt successfully!
+)
+echo.
+
+cd /d "%~dp0"
+
+REM Step 3: Restart the application
+echo [3/3] Restarting application...
 echo.
 
 REM Check if Docker is available and clean up existing LibreTranslate containers
@@ -30,7 +81,6 @@ echo.
 echo Checking for stopped/failed LibreTranslate containers...
 
 REM Only remove STOPPED or EXITED containers, not running ones
-REM This prevents killing containers that are still booting
 for /f "tokens=*" %%i in ('docker ps -a --filter "name=libretranslate" --filter "status=exited" --format "{{.ID}}" 2^>nul') do (
     echo   Removing stopped container: %%i
     docker rm -f %%i >nul 2>&1
@@ -59,14 +109,6 @@ echo.
 echo Waiting 3 seconds for backend to initialize...
 timeout /t 3 /nobreak >nul
 echo.
-echo Clearing Vite cache for fresh start...
-if exist "%~dp0frontend\node_modules\.vite" (
-    rmdir /s /q "%~dp0frontend\node_modules\.vite" 2>nul
-    echo [OK] Vite cache cleared
-) else (
-    echo [OK] No cache to clear
-)
-echo.
 echo Starting Frontend...
 start "Frontend Dev Server" cmd /k "cd /d "%~dp0frontend" && npm run dev"
 echo.
@@ -77,7 +119,7 @@ echo Opening browser...
 start http://localhost:3000
 echo.
 echo ========================================
-echo   APPLICATION STARTED!
+echo   UPDATE COMPLETE - APPLICATION STARTED!
 echo ========================================
 echo.
 echo Two windows should now be open:
@@ -87,12 +129,8 @@ echo.
 echo Your browser should open automatically.
 echo If not, go to: http://localhost:3000
 echo.
-echo IMPORTANT: If you don't see your latest changes:
-echo   - Press Ctrl+Shift+R (or Ctrl+F5) in your browser
-echo   - This forces a hard refresh and clears the cache
-echo.
-echo Note: LibreTranslate will auto-start if Docker is running.
-echo       The backend will handle container cleanup automatically.
+echo IMPORTANT: Press Ctrl+F5 in your browser to force refresh
+echo            and clear any cached old code!
 echo.
 echo To stop the application:
 echo   - Close both server windows

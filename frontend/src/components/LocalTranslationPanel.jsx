@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import './LocalTranslationPanel.css';
 import { t } from '../utils/i18n.js';
+import NotificationModal from './NotificationModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -22,6 +23,7 @@ function LocalTranslationPanel() {
   const [autoStarting, setAutoStarting] = useState(false);
   const [resources, setResources] = useState(null);
   const [showResources, setShowResources] = useState(false);
+  const [notification, setNotification] = useState({ show: false, type: 'info', title: '', message: '' });
 
   useEffect(() => {
     checkStatus();
@@ -140,13 +142,28 @@ function LocalTranslationPanel() {
       const result = await response.json();
       
       if (result.success) {
-        alert('✓ LibreTranslate started successfully! Checking status...');
+        setNotification({
+          show: true,
+          type: 'success',
+          title: 'Success',
+          message: '✓ LibreTranslate started successfully! Checking status...'
+        });
         setTimeout(checkStatus, 3000);
       } else {
-        alert(`Failed to start: ${result.message}`);
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Failed to Start',
+          message: `Failed to start: ${result.message}`
+        });
       }
     } catch (error) {
-      alert(`Error: ${error.message}`);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: `Error: ${error.message}`
+      });
     } finally {
       setStarting(false);
     }
@@ -438,7 +455,12 @@ function LocalTranslationPanel() {
                 className="copy-btn"
                 onClick={() => {
                   navigator.clipboard.writeText('docker run -d -p 5001:5000 libretranslate/libretranslate');
-                  alert('Command copied to clipboard!');
+                  setNotification({
+                    show: true,
+                    type: 'info',
+                    title: 'Copied',
+                    message: 'Command copied to clipboard!'
+                  });
                 }}
               >
                 📋 Copy
@@ -454,6 +476,14 @@ function LocalTranslationPanel() {
           </div>
         )}
       </div>
+
+      <NotificationModal
+        isOpen={notification.show}
+        onClose={() => setNotification({ show: false, type: 'info', title: '', message: '' })}
+        title={notification.title}
+        message={notification.message}
+        type={notification.type}
+      />
     </div>
   );
 }

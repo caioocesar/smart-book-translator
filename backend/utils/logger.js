@@ -97,20 +97,42 @@ export function logApiRequest(provider, endpoint, requestDetails, responseDetail
  * Log general errors
  */
 export function logError(category, message, error, context = {}) {
+  // Don't log "null" when error is intentionally null
+  const errorMessage = error?.message || (error !== null ? String(error) : undefined);
+  
   const errorDetails = {
     category,
     message,
-    error: {
-      message: error?.message || String(error),
+    error: error ? {
+      message: errorMessage,
       stack: error?.stack,
       name: error?.name
-    },
+    } : undefined,
     context,
     timestamp: new Date().toISOString()
   };
   
   writeLog(errorLogPath, 'ERROR', `${category}: ${message}`, errorDetails);
-  console.error(`[${category}] ${message}:`, error?.message || error);
+  if (errorMessage) {
+    console.error(`[${category}] ${message}:`, errorMessage);
+  } else {
+    console.error(`[${category}] ${message}`);
+  }
+}
+
+/**
+ * Log informational/success messages
+ */
+export function logInfo(category, message, context = {}) {
+  const infoDetails = {
+    category,
+    message,
+    context,
+    timestamp: new Date().toISOString()
+  };
+  
+  writeLog(errorLogPath, 'INFO', `${category}: ${message}`, infoDetails);
+  console.log(`[${category}] ${message}`, context && Object.keys(context).length > 0 ? context : '');
 }
 
 /**
@@ -193,6 +215,7 @@ export default {
   logApiError,
   logApiRequest,
   logError,
+  logInfo,
   getRecentLogs,
   clearOldLogs
 };

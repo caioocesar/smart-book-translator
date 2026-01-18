@@ -1,4 +1,5 @@
 import db from '../database/db.js';
+import Logger from '../utils/logger.js';
 
 class Glossary {
   static add(sourceTerm, targetTerm, sourceLanguage, targetLanguage, category = null) {
@@ -61,19 +62,94 @@ class Glossary {
         category = excluded.category
     `);
 
+    let successful = 0;
+    let failed = 0;
+    let duplicates = 0;
+    const errors = [];
+
+    // Check for duplicates before inserting
+    const checkStmt = db.prepare(`
+      SELECT id FROM glossary 
+      WHERE source_term = ? AND source_language = ? AND target_language = ?
+    `);
+
     const transaction = db.transaction((items) => {
-      for (const item of items) {
-        stmt.run(
-          item.source_term,
-          item.target_term,
-          item.source_language,
-          item.target_language,
-          item.category || null
-        );
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        try {
+          // Check if entry already exists (duplicate)
+          const existing = checkStmt.get(
+            item.source_term,
+            item.source_language,
+            item.target_language
+          );
+          
+          if (existing) {
+            duplicates++;
+          }
+          
+          // Insert or update
+          stmt.run(
+            item.source_term,
+            item.target_term,
+            item.source_language,
+            item.target_language,
+            item.category || null
+          );
+          
+          successful++;
+        } catch (error) {
+          failed++;
+          errors.push({
+            row: i + 1,
+            error: error.message || String(error),
+            entry: {
+              source_term: item.source_term,
+              source_language: item.source_language,
+              target_language: item.target_language
+            }
+          });
+          
+          // Log individual entry errors without breaking transaction
+          Logger.logError('glossary', `Failed to import entry at index ${i}`, error, {
+            entry: item
+          });
+        }
       }
     });
 
-    transaction(entries);
+    try {
+      transaction(entries);
+      
+      return {
+        successful,
+        failed,
+        duplicates,
+        errors: errors, // Always return array, even if empty
+        total: entries.length
+      };
+    } catch (error) {
+      Logger.logError('glossary', 'Transaction failed during import', error, {
+        entryCount: entries.length,
+        successful,
+        failed
+      });
+      
+      // Return partial results if transaction failed
+      return {
+        successful,
+        failed: failed + (entries.length - successful - failed),
+        duplicates,
+        errors: [
+          ...errors,
+          {
+            row: 'transaction',
+            error: `Transaction failed: ${error.message}`
+          }
+        ],
+        total: entries.length
+      };
+    }
   }
 }
 

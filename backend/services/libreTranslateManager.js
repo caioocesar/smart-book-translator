@@ -75,7 +75,7 @@ class LibreTranslateManager {
       this.languages = response.data || [];
       this.lastCheck = new Date().toISOString();
 
-      Logger.logError('libreTranslate', 'Health check successful', null, {
+      Logger.logInfo('libreTranslate', 'Health check successful', {
         languageCount: this.languages.length,
         url: baseUrl
       });
@@ -270,14 +270,14 @@ class LibreTranslateManager {
       }
       
       if (containers.length > 0) {
-        Logger.logError('libreTranslate', `Found ${containers.length} ${onlyStoppedContainers ? 'stopped' : 'existing'} container(s), cleaning up...`, null, {
+        Logger.logInfo('libreTranslate', `Found ${containers.length} ${onlyStoppedContainers ? 'stopped' : 'existing'} container(s), cleaning up...`, {
           containers: containers.map(id => id.substring(0, 12))
         });
         
         for (const containerId of containers) {
           try {
             await execAsync(`docker rm -f ${containerId}`);
-            Logger.logError('libreTranslate', `Removed container ${containerId.substring(0, 12)}`, null, {});
+            Logger.logInfo('libreTranslate', `Removed container ${containerId.substring(0, 12)}`, {});
           } catch (error) {
             Logger.logError('libreTranslate', `Failed to remove container ${containerId.substring(0, 12)}`, error, {});
           }
@@ -353,7 +353,7 @@ class LibreTranslateManager {
       } else if (containerStatus.booting) {
         // Container is running but still booting - DO NOT KILL IT
         this.status = 'booting';
-        Logger.logError('libreTranslate', 'Container is already booting, waiting for it to be ready...', null, {
+        Logger.logInfo('libreTranslate', 'Container is already booting, waiting for it to be ready...', {
           containerId: containerStatus.containerId
         });
         
@@ -371,7 +371,7 @@ class LibreTranslateManager {
 
       // Start new container with retry logic
       this.status = 'starting';
-      Logger.logError('libreTranslate', 'Starting LibreTranslate container', null, {});
+      Logger.logInfo('libreTranslate', 'Starting LibreTranslate container', {});
 
       let lastError = null;
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -385,7 +385,7 @@ class LibreTranslateManager {
           const { stdout } = await execAsync(command, { timeout: 120000 }); // 2 min timeout for image pull
           const containerId = stdout.trim();
 
-          Logger.logError('libreTranslate', `Container started (attempt ${attempt}/${maxRetries})`, null, {
+          Logger.logInfo('libreTranslate', `Container started (attempt ${attempt}/${maxRetries})`, {
             containerId: containerId.substring(0, 12)
           });
 
@@ -393,7 +393,7 @@ class LibreTranslateManager {
           // First run needs more time to download and load language models
           // LibreTranslate takes 30-60 seconds to fully boot on first run
           const waitTime = 30000 + (attempt - 1) * 10000; // 30s, 40s, 50s (increased for model loading)
-          Logger.logError('libreTranslate', `Waiting ${waitTime / 1000}s for container to initialize...`, null, {});
+          Logger.logInfo('libreTranslate', `Waiting ${waitTime / 1000}s for container to initialize...`, {});
           await new Promise(resolve => setTimeout(resolve, waitTime));
 
           // Verify it's running with retries (reduced frequency: every 10s)
@@ -403,7 +403,7 @@ class LibreTranslateManager {
             
             if (healthCheck.running) {
               this.status = 'running';
-              Logger.logError('libreTranslate', 'Container started and verified successfully', null, {
+              Logger.logInfo('libreTranslate', 'Container started and verified successfully', {
                 containerId: containerId.substring(0, 12),
                 attempt,
                 healthAttempt,
@@ -442,7 +442,7 @@ class LibreTranslateManager {
             if (error.message.includes('port is already allocated')) {
               const portCheck = await this.isPortInUse();
               if (portCheck.inUse) {
-                Logger.logError('libreTranslate', `Port 5001 is occupied by process ${portCheck.processId}`, null, {});
+                Logger.logInfo('libreTranslate', `Port 5001 is occupied by process ${portCheck.processId}`, {});
               }
             }
           } else {
@@ -499,7 +499,7 @@ class LibreTranslateManager {
       await execAsync(`docker rm ${containerId}`);
 
       this.status = 'stopped';
-      Logger.logError('libreTranslate', 'Container stopped', null, { containerId });
+      Logger.logInfo('libreTranslate', 'Container stopped', { containerId });
 
       return {
         success: true,

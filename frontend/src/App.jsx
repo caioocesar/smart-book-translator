@@ -15,7 +15,10 @@ import { t, getCurrentLanguage, setCurrentLanguage, getAvailableLanguages } from
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('translation');
+  // Load last active tab from localStorage, default to 'translation'
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('lastActiveTab') || 'translation';
+  });
   const [settings, setSettings] = useState({});
   const [apiStatus, setApiStatus] = useState(null);
   const [libreTranslateStatus, setLibreTranslateStatus] = useState(null);
@@ -26,6 +29,11 @@ function App() {
   const [currentLanguage, setLanguage] = useState(getCurrentLanguage());
   const [showOllamaPrompt, setShowOllamaPrompt] = useState(false);
   const [, forceUpdate] = useState();
+
+  // Save active tab to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('lastActiveTab', activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     // Load settings on app start
@@ -288,10 +296,18 @@ function App() {
         </div>
 
         <div className="tab-content">
-          {activeTab === 'translation' && <TranslationTab settings={settings} />}
-          {activeTab === 'history' && <HistoryTab settings={settings} onTranslationReady={checkForReadyTranslations} />}
-          {activeTab === 'glossary' && <GlossaryTab />}
-          {activeTab === 'settings' && <SettingsTab onSettingsUpdate={handleSettingsUpdate} />}
+          <div style={{ display: activeTab === 'translation' ? 'block' : 'none' }}>
+            <TranslationTab settings={settings} />
+          </div>
+          <div style={{ display: activeTab === 'history' ? 'block' : 'none' }}>
+            <HistoryTab settings={settings} onTranslationReady={checkForReadyTranslations} />
+          </div>
+          <div style={{ display: activeTab === 'glossary' ? 'block' : 'none' }}>
+            <GlossaryTab />
+          </div>
+          <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+            <SettingsTab onSettingsUpdate={handleSettingsUpdate} />
+          </div>
         </div>
       </div>
 

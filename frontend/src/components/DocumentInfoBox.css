@@ -85,14 +85,37 @@
 
 .recommendation-card.selected {
   border-color: #4CAF50;
-  background: rgba(76, 175, 80, 0.25);
-  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+  background: rgba(76, 175, 80, 0.35);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.5), 0 4px 12px rgba(76, 175, 80, 0.3);
+  transform: scale(1.02);
+  position: relative;
+}
+
+.recommendation-card.selected::before {
+  content: '✓ SELECTED';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #4CAF50;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
 }
 
 .recommendation-card.selected.recommended {
   border-color: #4CAF50;
-  background: rgba(76, 175, 80, 0.3);
-  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.4);
+  background: rgba(76, 175, 80, 0.4);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.6), 0 6px 16px rgba(76, 175, 80, 0.4);
+}
+
+.recommendation-card.selected.recommended::before {
+  content: '✓ SELECTED';
+  background: #4CAF50;
 }
 
 .recommendation-header {
@@ -114,6 +137,12 @@
   border-radius: 12px;
   font-size: 0.85em;
   font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.recommendation-card.selected .recommendation-badge {
+  /* Hide "Best Choice" badge when card is selected to avoid clutter */
+  opacity: 0.7;
 }
 
 .recommendation-details {

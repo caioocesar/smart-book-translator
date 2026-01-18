@@ -219,6 +219,9 @@ const translations = {
     
     // UI Language
     uiLanguage: 'Interface Language',
+    
+    // Glossary Options
+    useAllGlossaries: 'Apply all glossary terms to translation',
   },
   
   pt: {
@@ -438,6 +441,9 @@ const translations = {
     
     // UI Language
     uiLanguage: 'Idioma da Interface',
+    
+    // Glossary Options
+    useAllGlossaries: 'Aplicar todos os termos do glossário à tradução',
   },
   
   es: {
@@ -657,6 +663,9 @@ const translations = {
     
     // UI Language
     uiLanguage: 'Idioma de la Interfaz',
+    
+    // Glossary Options
+    useAllGlossaries: 'Aplicar todos los términos del glosario a la traducción',
   }
 };
 

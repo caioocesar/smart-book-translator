@@ -27,6 +27,20 @@ class TranslationJob {
     return stmt.all(limit);
   }
 
+  /**
+   * Check for existing jobs with same filename and active status
+   * @param {string} filename - Filename to check
+   * @returns {Array} Array of existing jobs with pending or translating status
+   */
+  static findActiveDuplicates(filename) {
+    const stmt = db.prepare(`
+      SELECT * FROM translation_jobs 
+      WHERE filename = ? AND status IN ('pending', 'translating')
+      ORDER BY created_at DESC
+    `);
+    return stmt.all(filename);
+  }
+
   static updateStatus(id, status, errorMessage = null) {
     const stmt = db.prepare(`
       UPDATE translation_jobs 
@@ -99,6 +113,15 @@ class TranslationChunk {
       ORDER BY chunk_index
     `);
     return stmt.all(jobId);
+  }
+
+  static updateStatus(id, status) {
+    const stmt = db.prepare(`
+      UPDATE translation_chunks
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(status, id);
   }
 
   static updateTranslation(id, translatedText, status = 'completed', translatedHtml = null) {

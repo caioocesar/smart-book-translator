@@ -76,7 +76,7 @@ function TranslationTab({ settings }) {
     { code: 'fr', name: 'French' },
     { code: 'de', name: 'German' },
     { code: 'it', name: 'Italian' },
-    { code: 'pt', name: 'Portuguese' },
+    { code: 'pt', name: 'Portuguese (Brazilian)' },
     { code: 'ru', name: 'Russian' },
     { code: 'ja', name: 'Japanese' },
     { code: 'zh', name: 'Chinese' },
@@ -805,7 +805,7 @@ function TranslationTab({ settings }) {
                       }
                     }}
                   />
-                  <span>{t('useAllGlossaries') || 'Use all glossary entries'}</span>
+                  <span>{t('useAllGlossaries') || 'Apply all glossary terms to translation'}</span>
                 </label>
               </div>
               {!useAllGlossaries && (

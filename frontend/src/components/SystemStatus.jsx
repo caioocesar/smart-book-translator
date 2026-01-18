@@ -99,7 +99,10 @@ function SystemStatus() {
     return (
       <div className="system-status error">
         <p>🔴 Backend Offline</p>
-        <button onClick={checkSystemStatus} className="btn-small">Retry</button>
+        {status?.error && <p style={{ fontSize: '0.9em', marginTop: '0.5rem' }}>{status.error}</p>}
+        <button onClick={checkSystemStatus} className="btn-small" style={{ marginTop: '0.5rem' }}>
+          🔄 Retry Connection
+        </button>
       </div>
     );
   }
@@ -110,8 +113,8 @@ function SystemStatus() {
   return (
     <div className="system-status">
       <div className="status-summary">
-        <span className={`status-indicator ${status.health.status === 'ok' ? 'online' : 'offline'}`}>
-          {status.health.status === 'ok' ? '🟢 System Online' : '🔴 System Issues'}
+        <span className={`status-indicator ${status.health?.status === 'ok' ? 'online' : 'offline'}`}>
+          {status.health?.status === 'ok' ? '🟢 System Online' : '🔴 System Issues'}
         </span>
         
         {hasTests && (
@@ -124,26 +127,44 @@ function SystemStatus() {
           onClick={() => setShowDetails(!showDetails)} 
           className="btn-small"
         >
-          {showDetails ? '▼ Hide' : '▶ Details'}
+          {showDetails ? '▼ Hide Details' : '▶ Show Details'}
+        </button>
+        
+        <button 
+          onClick={checkSystemStatus} 
+          className="btn-small"
+          disabled={loading}
+        >
+          {loading ? '⏳' : '🔄'} Refresh
         </button>
       </div>
 
       {showDetails && (
         <div className="status-details">
-          {status.info && (
+          {status.info ? (
             <div className="info-section">
-              <h4>System Information</h4>
-              <p>Database: {status.info.database.connected ? '✓ Connected' : '✗ Disconnected'}</p>
-              <p>Tables: {status.info.database.tables}</p>
-              <p>Translation Jobs: {status.info.stats.jobs}</p>
-              <p>Glossary Entries: {status.info.stats.glossaryEntries}</p>
-              <p>Uptime: {Math.floor(status.info.uptime / 60)} minutes</p>
+              <h4>💻 System Information</h4>
+              <p><strong>Database:</strong> {status.info.database?.connected ? '✓ Connected' : '✗ Disconnected'}</p>
+              <p><strong>Tables:</strong> {status.info.database?.tables || 'N/A'}</p>
+              <p><strong>Translation Jobs:</strong> {status.info.stats?.jobs || 0}</p>
+              <p><strong>Glossary Entries:</strong> {status.info.stats?.glossaryEntries || 0}</p>
+              <p><strong>Uptime:</strong> {status.info.uptime ? `${Math.floor(status.info.uptime / 60)} minutes` : 'N/A'}</p>
+              <p><strong>Node Version:</strong> {status.info.node || 'N/A'}</p>
+              {status.info.memory && (
+                <p><strong>Memory Usage:</strong> {(status.info.memory.heapUsed / 1024 / 1024).toFixed(2)} MB</p>
+              )}
+            </div>
+          ) : (
+            <div className="info-section">
+              <p style={{ color: '#856404', fontStyle: 'italic' }}>
+                ⚠️ System information not available. Backend may be starting up.
+              </p>
             </div>
           )}
 
-          {hasTests && (
+          {hasTests ? (
             <div className="tests-section">
-              <h4>System Tests</h4>
+              <h4>🧪 System Tests</h4>
               {testsStatus.tests.map((test, index) => (
                 <div key={index} className={`test-item ${test.status}`}>
                   <span className="test-icon">{test.status === 'passed' ? '✓' : '✗'}</span>
@@ -151,8 +172,17 @@ function SystemStatus() {
                   {test.error && <span className="test-error">{test.error}</span>}
                 </div>
               ))}
-              <button onClick={runTests} className="btn-secondary" disabled={loading}>
+              <button onClick={runTests} className="btn-secondary" disabled={loading} style={{ marginTop: '1rem' }}>
                 {loading ? '⏳ Running...' : '🔄 Run Tests Again'}
+              </button>
+            </div>
+          ) : (
+            <div className="tests-section">
+              <p style={{ color: '#856404', fontStyle: 'italic' }}>
+                ⚠️ Test results not available. Click "Run Tests Again" to run system tests.
+              </p>
+              <button onClick={runTests} className="btn-secondary" disabled={loading} style={{ marginTop: '1rem' }}>
+                {loading ? '⏳ Running...' : '▶️ Run System Tests'}
               </button>
             </div>
           )}

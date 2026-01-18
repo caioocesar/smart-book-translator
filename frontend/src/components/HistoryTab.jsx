@@ -48,6 +48,7 @@ function HistoryTab({ settings, onTranslationReady }) {
   });
   const [currentTime, setCurrentTime] = useState(new Date());
   const [processingStats, setProcessingStats] = useState({}); // Track processing stats per job
+  const [chunkErrors, setChunkErrors] = useState({}); // Track errors per job
 
   useEffect(() => {
     loadJobs();
@@ -95,6 +96,37 @@ function HistoryTab({ settings, onTranslationReady }) {
   const loadJobChunks = async (jobId) => {
     try {
       const response = await axios.get(`${API_URL}/api/translation/chunks/${jobId}`);
+      
+      // Clear any previous errors for this job
+      setChunkErrors(prev => {
+        const updated = { ...prev };
+        delete updated[jobId];
+        return updated;
+      });
+
+      // Check if response is empty or invalid
+      if (!response.data || !Array.isArray(response.data)) {
+        setChunkErrors(prev => ({
+          ...prev,
+          [jobId]: 'Invalid response from server'
+        }));
+        setJobChunks(prev => ({ ...prev, [jobId]: [] }));
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Error Loading Chunks',
+          message: 'Invalid response from server. Please try again.'
+        });
+        return;
+      }
+
+      // Handle empty chunks array
+      if (response.data.length === 0) {
+        setJobChunks(prev => ({ ...prev, [jobId]: [] }));
+        // Don't show error for empty - might be legitimate
+        return;
+      }
+
       setJobChunks(prev => {
         // Only update if data actually changed to avoid unnecessary re-renders
         const existingChunks = prev[jobId];
@@ -120,6 +152,18 @@ function HistoryTab({ settings, onTranslationReady }) {
       }
     } catch (err) {
       console.error('Failed to load chunks:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to load chunks';
+      setChunkErrors(prev => ({
+        ...prev,
+        [jobId]: errorMessage
+      }));
+      setJobChunks(prev => ({ ...prev, [jobId]: null })); // Set to null to indicate error
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error Loading Chunks',
+        message: errorMessage
+      });
     }
   };
 
@@ -931,8 +975,24 @@ function HistoryTab({ settings, onTranslationReady }) {
                       </select>
                     </div>
                   </div>
-                  {!jobChunks[job.id] ? (
+                  {!jobChunks[job.id] && !chunkErrors[job.id] ? (
                     <p className="loading-message">{t('loadingChunks')}</p>
+                  ) : chunkErrors[job.id] ? (
+                    <div className="error-message" style={{ padding: '12px', background: '#fee', border: '1px solid #fcc', borderRadius: '4px' }}>
+                      <p><strong>❌ Error loading chunks:</strong></p>
+                      <p>{chunkErrors[job.id]}</p>
+                      <button 
+                        className="btn-small btn-secondary"
+                        onClick={() => loadJobChunks(job.id)}
+                        style={{ marginTop: '8px' }}
+                      >
+                        🔄 Retry
+                      </button>
+                    </div>
+                  ) : jobChunks[job.id] && jobChunks[job.id].length === 0 ? (
+                    <p className="info-message" style={{ padding: '12px', background: '#e3f2fd', border: '1px solid #90caf9', borderRadius: '4px' }}>
+                      ℹ️ No chunks found for this job.
+                    </p>
                   ) : (
                     <div className="chunks-grid">
                       {(chunkStatusFilter === 'all'
@@ -958,8 +1018,45 @@ function HistoryTab({ settings, onTranslationReady }) {
                             >
                               {chunk.status.toUpperCase()}
                             </span>
+                            {chunk.status === 'translating' && (
+                              <span
+                                className="chunk-layer-badge"
+                                title={
+                                  chunk.processing_layer === 'llm-enhancing'
+                                    ? '2nd layer: LLM enhancement (Ollama)'
+                                    : '1st layer: translation (LibreTranslate/API)'
+                                }
+                                style={{
+                                  marginLeft: '8px',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  fontSize: '0.75em',
+                                  fontWeight: 700,
+                                  border: '1px solid rgba(0,0,0,0.12)',
+                                  backgroundColor:
+                                    chunk.processing_layer === 'llm-enhancing'
+                                      ? 'rgba(156,39,176,0.12)'
+                                      : 'rgba(23,162,184,0.12)',
+                                  color: chunk.processing_layer === 'llm-enhancing' ? '#6a1b9a' : '#0f6674'
+                                }}
+                              >
+                                {chunk.processing_layer === 'llm-enhancing'
+                                  ? '🤖 2nd Layer (LLM)'
+                                  : chunk.processing_layer === 'translating'
+                                    ? '🔄 1st Layer (Translate)'
+                                    : '🔄 Translating'}
+                              </span>
+                            )}
                           </div>
                           <div className="chunk-preview">
+                            {chunk.status === 'translating' && (
+                              <div style={{ marginBottom: '10px', fontSize: '0.8rem', color: '#495057' }}>
+                                <strong>Layer:</strong>{' '}
+                                {chunk.processing_layer === 'llm-enhancing'
+                                  ? '🤖 2nd Layer (LLM enhancement)'
+                                  : '🔄 1st Layer (translation)'}
+                              </div>
+                            )}
                             <div className="chunk-text">
                               <label>Source:</label>
                               <p>{chunk.source_text?.substring(0, 100)}...</p>
