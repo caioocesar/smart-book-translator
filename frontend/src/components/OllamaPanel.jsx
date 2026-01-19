@@ -19,6 +19,7 @@ function OllamaPanel() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [notification, setNotification] = useState({ show: false, type: 'info', title: '', message: '' });
+  const [installOutput, setInstallOutput] = useState(''); // NEW: for installation output
 
   useEffect(() => {
     loadStatus();
@@ -111,8 +112,57 @@ function OllamaPanel() {
     }
   };
 
+  const handleAutoInstall = async () => {
+    setLoading(true);
+    setInstallOutput('Starting Ollama installation...\n');
+    
+    try {
+      const response = await axios.post(`${API_URL}/api/ollama/install`);
+      
+      if (response.data.success) {
+        setInstallOutput(prev => prev + '\n' + response.data.output);
+        setNotification({
+          show: true,
+          type: 'success',
+          title: 'Installation Started',
+          message: 'Ollama installation has been started. Please restart your computer after installation completes.'
+        });
+        // Poll status to detect when installed
+        setTimeout(() => loadStatus(), 5000);
+      } else {
+        setInstallOutput(prev => prev + '\nError: ' + response.data.message);
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Installation Failed',
+          message: response.data.message || 'Failed to install Ollama. Please try manual installation.'
+        });
+      }
+    } catch (error) {
+      setInstallOutput(prev => prev + '\nError: ' + error.message);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Installation Error',
+        message: `Error: ${error.message}. Please try manual installation.`
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDownloadModel = async (modelName = status?.recommendedModel) => {
-    if (!modelName) return;
+    if (!modelName) {
+      console.error('No model name provided to handleDownloadModel');
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Download Error',
+        message: 'No model name specified. Please refresh the page and try again.'
+      });
+      return;
+    }
+    
     setModelAction({
       action: 'install',
       modelName,
@@ -120,6 +170,7 @@ function OllamaPanel() {
       message: 'Starting download...'
     });
     setDownloading(true);
+    
     try {
       const response = await axios.post(`${API_URL}/api/ollama/download-model`, {
         modelName
@@ -139,15 +190,16 @@ function OllamaPanel() {
           action: 'install',
           modelName,
           status: 'error',
-          message: response.data.message || 'Failed to download model'
+          message: response.data.message || response.data.error || 'Failed to download model'
         });
       }
     } catch (error) {
+      console.error('Download model error:', error);
       setModelAction({
         action: 'install',
         modelName,
         status: 'error',
-        message: error.message
+        message: error.response?.data?.error || error.message || 'Network error'
       });
     } finally {
       setDownloading(false);
@@ -220,7 +272,7 @@ function OllamaPanel() {
   const hasRecommendedModel = status?.recommendedInstalled;
   const installedNames = models.map(model => model.name);
   const formatBytes = (value) => {
-    if (!value) return '0 B';
+    if (!value || typeof value !== 'number' || isNaN(value)) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = value;
     let unitIndex = 0;
@@ -256,12 +308,66 @@ function OllamaPanel() {
               <li>✨ Text structure improvements (cohesion, coherence, grammar)</li>
               <li>✨ Glossary term verification</li>
             </ul>
-            <p><strong>Installation:</strong></p>
-            <ul>
-              <li><strong>Windows:</strong> Run <code>scripts\install-ollama-windows.ps1</code></li>
-              <li><strong>Linux:</strong> Run <code>scripts/install-ollama-linux.sh</code></li>
-              <li><strong>Manual:</strong> Visit <a href="https://ollama.com" target="_blank" rel="noopener noreferrer">ollama.com</a></li>
-            </ul>
+            
+            <div style={{ marginTop: '16px', padding: '12px', background: '#f0f8ff', borderRadius: '6px' }}>
+              <p style={{ fontWeight: 600, marginBottom: '8px' }}>🚀 Quick Install Options:</p>
+              
+              <button 
+                className="btn-primary" 
+                onClick={handleAutoInstall}
+                disabled={loading}
+                style={{ width: '100%', marginBottom: '12px' }}
+              >
+                {loading ? '⏳ Installing Ollama...' : '🚀 Install Ollama Automatically'}
+              </button>
+              
+              {installOutput && (
+                <div style={{ 
+                  marginTop: '8px', 
+                  padding: '8px', 
+                  background: '#fff', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px',
+                  maxHeight: '150px',
+                  overflowY: 'auto',
+                  fontSize: '0.85em',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {installOutput}
+                </div>
+              )}
+              
+              <details style={{ marginTop: '12px' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                  📋 Manual Installation Instructions
+                </summary>
+                <div style={{ marginTop: '8px', paddingLeft: '8px' }}>
+                  <p><strong>Windows:</strong></p>
+                  <ol style={{ fontSize: '0.9em', margin: '4px 0 12px 20px' }}>
+                    <li>Right-click <code>scripts\install-ollama-windows.ps1</code></li>
+                    <li>Select "Run with PowerShell"</li>
+                    <li>Or download from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer">ollama.com/download</a></li>
+                  </ol>
+                  
+                  <p><strong>Linux:</strong></p>
+                  <ol style={{ fontSize: '0.9em', margin: '4px 0 12px 20px' }}>
+                    <li>Run: <code>bash scripts/install-ollama-linux.sh</code></li>
+                    <li>Or run: <code>curl -fsSL https://ollama.com/install.sh | sh</code></li>
+                  </ol>
+                  
+                  <p><strong>macOS:</strong></p>
+                  <ol style={{ fontSize: '0.9em', margin: '4px 0 12px 20px' }}>
+                    <li>Download from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer">ollama.com/download</a></li>
+                    <li>Or use: <code>brew install ollama</code></li>
+                  </ol>
+                  
+                  <p style={{ fontSize: '0.85em', color: '#666', marginTop: '12px' }}>
+                    ⚠️ <strong>Note:</strong> After installation, restart your computer for Ollama to be detected properly.
+                  </p>
+                </div>
+              </details>
+            </div>
           </div>
         )}
 
@@ -292,11 +398,11 @@ function OllamaPanel() {
               {!hasRecommendedModel && (
                 <div className="warning-box" style={{ marginTop: '12px' }}>
                   <p><strong>⚠️ Recommended model not installed</strong></p>
-                  <p>Model: <code>{status.recommendedModel}</code> (~2GB)</p>
+                  <p>Model: <code>{status?.recommendedModel || 'Unknown'}</code> (~2GB)</p>
                   <button 
                     className="btn-primary" 
-                    onClick={handleDownloadModel}
-                    disabled={downloading}
+                    onClick={() => handleDownloadModel(status?.recommendedModel)}
+                    disabled={downloading || !status?.recommendedModel}
                   >
                     {downloading ? '⏳ Downloading...' : '⬇️ Download Model'}
                   </button>

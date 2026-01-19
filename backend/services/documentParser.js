@@ -2,14 +2,58 @@ import mammoth from 'mammoth';
 import pdfParse from 'pdf-parse';
 import EPub from 'epub';
 import fs from 'fs';
+import tokenCounter from '../utils/tokenizer.js';
 
 class DocumentParser {
   /**
-   * Split text into chunks intelligently respecting natural boundaries
+   * Split text into chunks using token-based chunking (recommended)
+   * @param {string} text - Text to split
+   * @param {number} maxTokens - Maximum tokens per chunk (default: 2400)
+   * @param {boolean} useTokens - Use token-based chunking (default: true)
+   * @returns {Array<string>} Array of text chunks
+   */
+  static splitIntoChunks(text, maxChunkSize = 2400, useTokens = true) {
+    // Validate input
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      console.warn('⚠️  splitIntoChunks called with empty or invalid text');
+      return [];
+    }
+
+    try {
+      if (useTokens) {
+        // Token-based chunking (NEW - recommended)
+        const chunks = tokenCounter.splitIntoTokenChunks(text, maxChunkSize, 100);
+        if (chunks.length > 0) {
+          const avgTokens = Math.round(chunks.reduce((sum, c) => sum + c.tokens, 0) / chunks.length);
+          console.log(`✓ Token-based chunking: ${chunks.length} chunks (avg ${avgTokens} tokens/chunk)`);
+        } else {
+          console.log('✓ Token-based chunking: 0 chunks (empty text)');
+        }
+        return chunks.map(chunk => chunk.text);
+      }
+      
+      // Character-based chunking (LEGACY - fallback)
+      return this.splitIntoChunksLegacy(text, maxChunkSize);
+    } catch (error) {
+      console.error('❌ Error in splitIntoChunks:', error.message);
+      console.error('   Falling back to legacy character-based chunking');
+      // Fallback to legacy chunking on error
+      try {
+        return this.splitIntoChunksLegacy(text, maxChunkSize);
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError.message);
+        // Last resort: return text as single chunk
+        return [text];
+      }
+    }
+  }
+
+  /**
+   * Legacy character-based chunking (kept for backward compatibility)
    * Priority: Paragraphs > Sentences > Words > Characters
    * Ensures chunks don't break in the middle of sentences
    */
-  static splitIntoChunks(text, maxChunkSize = 3000) {
+  static splitIntoChunksLegacy(text, maxChunkSize = 3000) {
     const chunks = [];
     
     // Split by paragraphs (double newlines or more)

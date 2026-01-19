@@ -112,9 +112,12 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     }
 
     // Use provided chunk size or default based on provider and LLM usage
-    // LLM-enhanced: smaller chunks (3500) to prevent truncation with small models
-    // Local without LLM: larger chunks (6000) for efficiency
-    // Cloud APIs: smaller chunks (3000) to manage costs
+    // TOKEN-BASED CHUNKING (NEW): Use tokens instead of characters
+    // LLM-enhanced: 2400 tokens (safe for 4K context models)
+    // Local without LLM: 3000 tokens (more efficient)
+    // Cloud APIs: 2000 tokens (manage costs)
+    
+    const useTokenBasedChunking = apiOptions?.useTokenBasedChunking !== false; // Default: true
     let maxChunkSize;
     const isLocalProvider = apiProvider && apiProvider.toLowerCase() === 'local';
     const useLLM = apiOptions?.useLLM || false;
@@ -122,12 +125,46 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     const hasLLMStages = llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled;
     const isLLMEnabled = useLLM || hasLLMStages;
     
-    const MIN_CHUNK_SIZE = 500;
-    const MAX_CHUNK_SIZE = 10000;
+    const MIN_CHUNK_SIZE = useTokenBasedChunking ? 500 : 500;  // 500 tokens or 500 chars
+    const MAX_CHUNK_SIZE = useTokenBasedChunking ? 4000 : 10000; // 4000 tokens or 10000 chars
+    
     if (chunkSize) {
       const parsedSize = parseInt(chunkSize, 10);
       if (!Number.isFinite(parsedSize)) {
         // Smart defaults based on LLM usage
+        if (useTokenBasedChunking) {
+          if (isLocalProvider && isLLMEnabled) {
+            maxChunkSize = 2400; // 2400 tokens for LLM processing
+          } else if (isLocalProvider) {
+            maxChunkSize = 3000; // 3000 tokens for LibreTranslate only
+          } else {
+            maxChunkSize = 2000; // 2000 tokens for Cloud APIs
+          }
+        } else {
+          // Legacy character-based
+          if (isLocalProvider && isLLMEnabled) {
+            maxChunkSize = 3500; // Smaller chunks for LLM processing
+          } else if (isLocalProvider) {
+            maxChunkSize = 6000; // Larger chunks for LibreTranslate only
+          } else {
+            maxChunkSize = 3000; // Cloud APIs
+          }
+        }
+      } else {
+        maxChunkSize = Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, parsedSize));
+      }
+    } else {
+      // Provider-aware defaults with LLM consideration
+      if (useTokenBasedChunking) {
+        if (isLocalProvider && isLLMEnabled) {
+          maxChunkSize = 2400; // 2400 tokens for LLM processing
+        } else if (isLocalProvider) {
+          maxChunkSize = 3000; // 3000 tokens for LibreTranslate only
+        } else {
+          maxChunkSize = 2000; // 2000 tokens for Cloud APIs
+        }
+      } else {
+        // Legacy character-based
         if (isLocalProvider && isLLMEnabled) {
           maxChunkSize = 3500; // Smaller chunks for LLM processing
         } else if (isLocalProvider) {
@@ -135,23 +172,13 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         } else {
           maxChunkSize = 3000; // Cloud APIs
         }
-      } else {
-        maxChunkSize = Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, parsedSize));
-      }
-    } else {
-      // Provider-aware defaults with LLM consideration
-      if (isLocalProvider && isLLMEnabled) {
-        maxChunkSize = 3500; // Smaller chunks for LLM processing
-      } else if (isLocalProvider) {
-        maxChunkSize = 6000; // Larger chunks for LibreTranslate only
-      } else {
-        maxChunkSize = 3000; // Cloud APIs
       }
     }
     
-    Logger.logError('upload', `Using chunk size: ${maxChunkSize} chars (provider: ${apiProvider}, local: ${isLocalProvider}, LLM: ${isLLMEnabled})`, null, {});
+    const chunkUnit = useTokenBasedChunking ? 'tokens' : 'chars';
+    Logger.logError('upload', `Using chunk size: ${maxChunkSize} ${chunkUnit} (provider: ${apiProvider}, local: ${isLocalProvider}, LLM: ${isLLMEnabled}, tokenBased: ${useTokenBasedChunking})`, null, {});
     
-    const chunks = DocumentParser.splitIntoChunks(parsed.text, maxChunkSize);
+    const chunks = DocumentParser.splitIntoChunks(parsed.text, maxChunkSize, useTokenBasedChunking);
     let htmlChunks = [];
     
     // If HTML is available, split it intelligently preserving tags

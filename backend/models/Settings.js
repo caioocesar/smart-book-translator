@@ -83,6 +83,33 @@ class Settings {
     if (value.length <= 8) return '****';
     return '****' + value.slice(-4);
   }
+
+  /**
+   * Initialize default settings for new pipeline features
+   */
+  static initializeNewPipelineSettings() {
+    const defaults = {
+      // Token-based chunking
+      useTokenBasedChunking: true,
+      
+      // Smart pipeline
+      smartPipelineEnabled: true,
+      qualityThreshold: 85,
+      
+      // Model assignments
+      validationModel: 'qwen2.5:7b',
+      rewriteModel: 'llama3.1:8b',
+      technicalModel: 'mistral:7b'
+    };
+
+    for (const [key, value] of Object.entries(defaults)) {
+      const existing = this.get(key);
+      if (existing === null || existing === undefined) {
+        this.set(key, value);
+        console.log(`✓ Initialized setting: ${key} = ${value}`);
+      }
+    }
+  }
 }
 
 export default Settings;

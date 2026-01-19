@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import os from 'os';
 import Logger from '../utils/logger.js';
 import Settings from '../models/Settings.js';
+import validationParser from '../utils/validationParser.js';
 
 const execAsync = promisify(exec);
 
@@ -404,10 +405,46 @@ class OllamaService {
         { outputJson: true, analysisReport, role }
       );
 
+      // NEW: Model-specific settings based on role
+      const getModelSpecificSettings = (role) => {
+        if (role === 'validation') {
+          return {
+            num_ctx: 4096,
+            max_tokens: 200,  // Short responses only
+            temperature: 0.1,
+            timeout: 60000    // 60 seconds
+          };
+        } else if (role === 'rewrite') {
+          return {
+            num_ctx: 8192,
+            max_tokens: 4096,  // Increased for large chunks
+            temperature: 0.1,  // Will be adjusted based on issue types
+            timeout: 120000    // 120 seconds (increased for longer generation)
+          };
+        } else if (role === 'technical') {
+          return {
+            num_ctx: 8192,
+            max_tokens: 4096,  // Increased for large chunks
+            temperature: 0.2,
+            timeout: 120000    // 120 seconds
+          };
+        } else {
+          // Default/enhance role
+          return {
+            num_ctx: generationOptions.num_ctx || 4096,
+            max_tokens: generationOptions.max_tokens || 1600,
+            temperature: generationOptions.temperature ?? 0.3,
+            timeout: 90000
+          };
+        }
+      };
+
+      const modelSettings = getModelSpecificSettings(role);
+
       const buildOllamaOptions = (overrides = {}) => ({
-        temperature: generationOptions.temperature ?? 0.3,
+        temperature: overrides.temperature ?? modelSettings.temperature,
         top_p: generationOptions.top_p ?? 0.9,
-        num_ctx: generationOptions.num_ctx || 4096, // Default 4096 tokens if not specified
+        num_ctx: overrides.num_ctx || modelSettings.num_ctx,
         num_batch: generationOptions.num_batch,
         num_thread: generationOptions.num_thread,
         num_gpu: generationOptions.num_gpu,
@@ -420,9 +457,15 @@ class OllamaService {
           prompt: promptText,
           stream: false,
           options: {
-            ...buildOllamaOptions(overrideOptions)
+            ...buildOllamaOptions(overrideOptions),
+            num_predict: overrideOptions.max_tokens || modelSettings.max_tokens // Set max tokens
           }
         };
+
+        // For validation role, don't use structured output (need raw response)
+        if (role === 'validation') {
+          useStructuredOutput = false;
+        }
 
         // Structured output helps ensure we only get the text (no commentary).
         // If the server/model doesn't support it, we'll fall back to plain text.
@@ -437,7 +480,8 @@ class OllamaService {
         }
 
         try {
-          const response = await axios.post(`${this.baseUrl}/api/generate`, body, { timeout: 120000 });
+          const timeout = modelSettings.timeout || 120000;
+          const response = await axios.post(`${this.baseUrl}/api/generate`, body, { timeout });
           const raw = (response.data?.response ?? '').trim();
 
           if (useStructuredOutput) {
@@ -457,10 +501,11 @@ class OllamaService {
             (String(msg).toLowerCase().includes('format') ||
               err?.response?.status === 400);
           if (shouldFallback) {
+            const timeout = modelSettings.timeout || 120000;
             const response = await axios.post(
               `${this.baseUrl}/api/generate`,
               { ...body, format: undefined },
-              { timeout: 120000 }
+              { timeout }
             );
             return (response.data?.response ?? '').trim();
           }
@@ -470,6 +515,28 @@ class OllamaService {
 
       // Attempt 1 (normal)
       let enhancedText = await callOllama(prompt, {}, true);
+      
+      // NEW: Special handling for validation role
+      if (role === 'validation') {
+        const parsed = validationParser.parseValidationResponse(enhancedText);
+        
+        Logger.logInfo('ollama', 'Validation response parsed', {
+          isOk: parsed.isOk,
+          issueCount: parsed.issues.length,
+          rawResponse: parsed.rawResponse.substring(0, 200)
+        });
+
+        return {
+          success: true,
+          validationResult: parsed,
+          enhancedText: enhancedText, // Keep raw response
+          originalText: translatedText,
+          model: modelToUse,
+          duration: Date.now() - startTime,
+          role: 'validation'
+        };
+      }
+
       enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
       enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang); // run twice to catch multi-line prefixes
 
@@ -522,6 +589,32 @@ class OllamaService {
         enhancedText = this.applyBrazilianPortugueseFixes(enhancedText);
       }
 
+      // NEW: Check for incomplete output and attempt continuation
+      if (role !== 'validation') { // Skip for validation (should be short)
+        const isIncomplete = this.isOutputIncomplete(enhancedText);
+        if (isIncomplete) {
+          console.log('⚠️ Detected incomplete output, attempting continuation...');
+          try {
+            const continuationPrompt = this.buildContinuationPrompt(enhancedText, targetLang);
+            const continuation = await callOllama(continuationPrompt, { temperature: 0.2, max_tokens: 800 }, false);
+            const sanitizedContinuation = this.sanitizeEnhancedText(continuation, targetLang);
+            
+            // Merge responses intelligently
+            enhancedText = this.mergeContinuation(enhancedText, sanitizedContinuation);
+            console.log('✓ Successfully continued incomplete output');
+            
+            Logger.logInfo('ollama', 'Output continuation successful', {
+              originalLength: translatedText.length,
+              firstPartLength: enhancedText.length,
+              continuationLength: sanitizedContinuation.length,
+              finalLength: enhancedText.length
+            });
+          } catch (contError) {
+            console.warn('⚠️ Continuation failed, using incomplete output:', contError.message);
+          }
+        }
+      }
+
       const duration = Date.now() - startTime;
 
       Logger.logInfo('ollama', 'Translation enhanced successfully', {
@@ -547,6 +640,78 @@ class OllamaService {
         originalText: translatedText
       };
     }
+  }
+
+  /**
+   * Check if output appears incomplete
+   * @private
+   */
+  isOutputIncomplete(text) {
+    if (!text || typeof text !== 'string' || text.length < 50) {
+      return false;
+    }
+
+    // Check if ends mid-sentence (no final punctuation)
+    const lastChar = text.trim().slice(-1);
+    const hasProperEnding = ['.', '!', '?', ':', '"', "'", '"'].includes(lastChar);
+    
+    if (!hasProperEnding) {
+      return true;
+    }
+
+    // Check if last sentence appears cut off
+    const lastSentence = text.split(/[.!?]+/).pop().trim();
+    if (lastSentence.length > 0) {
+      // If last "sentence" has more than 15 words and no punctuation, likely cut off
+      const wordCount = lastSentence.split(/\s+/).length;
+      if (wordCount > 15) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Build continuation prompt
+   * @private
+   */
+  buildContinuationPrompt(partialText, targetLang) {
+    const lastChars = partialText.slice(-200);
+    
+    return `You are continuing a translation that was cut off. The text ended with:
+"...${lastChars}"
+
+Continue EXACTLY where the text stopped. Do NOT repeat any previous text. Just continue naturally and complete the translation. Write in ${targetLang}.`;
+  }
+
+  /**
+   * Merge original text with continuation
+   * @private
+   */
+  mergeContinuation(original, continuation) {
+    if (!continuation || continuation.length === 0) {
+      return original;
+    }
+
+    // Remove any duplicate text at the start of continuation
+    const lastWords = original.trim().split(/\s+/).slice(-10).join(' ');
+    let merged = original;
+
+    // Check if continuation starts with duplicate words
+    if (continuation.toLowerCase().includes(lastWords.toLowerCase())) {
+      const overlapIndex = continuation.toLowerCase().indexOf(lastWords.toLowerCase());
+      if (overlapIndex < 100) { // Only if overlap is near the start
+        merged = original + ' ' + continuation.substring(overlapIndex + lastWords.length).trim();
+      } else {
+        merged = original + ' ' + continuation;
+      }
+    } else {
+      // No overlap detected, just append
+      merged = original + ' ' + continuation;
+    }
+
+    return merged.trim();
   }
 
   /**
@@ -658,19 +823,123 @@ class OllamaService {
       prompt += `   - ⚠️ Process the ENTIRE text and return it ALL with improvements applied\n`;
       taskNumber++;
     } else if (role === 'validation') {
-      prompt += `${taskNumber}. SEMANTIC VALIDATION:\n`;
-      prompt += `   - Verify that the meaning matches the original intent\n`;
-      prompt += `   - Fix mistranslations with MINIMAL edits\n`;
-      prompt += `   - Preserve structure and wording unless incorrect\n`;
-      prompt += `   - Fix grammar errors (agreement, verb conjugation, word order) following ${targetLanguageName} rules\n`;
-      prompt += `   - CRITICAL: Maintain natural word order for ${targetLanguageName}\n`;
-      prompt += `   - CRITICAL: Return the COMPLETE translation with ALL corrections applied\n`;
-      prompt += `   - Do NOT return only the corrected parts - return the ENTIRE text\n`;
+      prompt += `${taskNumber}. TRANSLATION VALIDATION:\n`;
+      prompt += `   - Review this translation for quality and grammar\n`;
+      prompt += `   - Respond with EXACTLY:\n`;
+      prompt += `     • "OK" if translation is accurate and natural\n`;
+      prompt += `     • Otherwise, list SPECIFIC issues found (maximum 5 issues):\n`;
+      prompt += `       Format each issue as: [TYPE] Description\n`;
+      prompt += `       Types: [GENDER], [PLURAL], [WORD_ORDER], [MISTRANSLATION], [PHRASING]\n`;
+      prompt += `\n`;
+      
+      // NEW: Language variant analysis for Portuguese
+      if (targetLower === 'pt' || targetLower === 'pt-br' || targetLanguageName.toLowerCase().includes('brazilian portuguese')) {
+        prompt += `   - LANGUAGE VARIANT CHECK (CRITICAL):\n`;
+        prompt += `     • Verify if text uses Brazilian Portuguese (pt-BR) or European Portuguese (pt-PT)\n`;
+        prompt += `     • Flag as [VARIANT] if European Portuguese detected:\n`;
+        prompt += `       - "teu/tua" instead of "seu/sua" (possessives)\n`;
+        prompt += `       - "demasiado" instead of "demais/muito"\n`;
+        prompt += `       - European verb forms or vocabulary\n`;
+        prompt += `     • Expected: Brazilian Portuguese\n`;
+        prompt += `\n`;
+      }
+      
+      // NEW: Formality check
+      const expectedFormality = formality || 'neutral';
+      const formalityDescriptions = {
+        'formal': 'formal and professional (você, senhor/senhora, formal pronouns)',
+        'informal': 'casual and conversational (everyday language, relaxed tone)',
+        'neutral': 'balanced and standard (neither too formal nor too casual)'
+      };
+      const expectedDesc = formalityDescriptions[expectedFormality] || 'appropriate';
+      
+      prompt += `   - FORMALITY CHECK:\n`;
+      prompt += `     • Expected formality level: ${expectedFormality.toUpperCase()} (${expectedDesc})\n`;
+      prompt += `     • Verify if text matches the expected formality\n`;
+      prompt += `     • Flag as [FORMALITY] if formality mismatch detected:\n`;
+      prompt += `       - Too formal when informal expected\n`;
+      prompt += `       - Too casual when formal expected\n`;
+      prompt += `       - Inconsistent formality within text\n`;
+      prompt += `\n`;
+      
+      prompt += `   - Example response with issues:\n`;
+      prompt += `     [GENDER] 'bons homens' but uses 'bom' (should be 'bons')\n`;
+      prompt += `     [VARIANT] Uses European Portuguese "demasiado" (should be "demais")\n`;
+      prompt += `     [FORMALITY] Text is too formal, expected informal tone\n`;
+      prompt += `     [PLURAL] Singular adjective with plural noun in line 3\n`;
+      prompt += `   - CRITICAL: Keep response SHORT (max 5 issues, ~50-75 words total)\n`;
+      prompt += `   - Do NOT rewrite the text, only report issues or say "OK"\n`;
       taskNumber++;
     } else if (role === 'rewrite') {
       prompt += `${taskNumber}. NATURAL REWRITE:\n`;
-      prompt += `   - Rewrite to sound natural and fluent in ${targetLanguageName}\n`;
-      prompt += `   - Keep meaning identical, improve flow and readability\n`;
+      
+      // NEW: Use validation issues if available
+      if (extra?.analysisReport?.validationIssues && extra.analysisReport.validationIssues.length > 0) {
+        prompt += `   - Fix the following SPECIFIC issues found in validation:\n`;
+        
+        let hasVariantIssues = false;
+        let hasFormalityIssues = false;
+        
+        extra.analysisReport.validationIssues.forEach((issue, idx) => {
+          prompt += `     ${idx + 1}. [${issue.type}] ${issue.description}\n`;
+          
+          if (issue.type.toUpperCase() === 'VARIANT') {
+            hasVariantIssues = true;
+          }
+          if (issue.type.toUpperCase() === 'FORMALITY') {
+            hasFormalityIssues = true;
+          }
+        });
+        prompt += `\n`;
+        
+        // NEW: Special instructions for variant issues
+        if (hasVariantIssues && (targetLower === 'pt' || targetLower === 'pt-br')) {
+          prompt += `   - CRITICAL: Convert ALL European Portuguese to Brazilian Portuguese:\n`;
+          prompt += `     • Change "teu/tua" → "seu/sua"\n`;
+          prompt += `     • Change "demasiado" → "demais" or "muito"\n`;
+          prompt += `     • Use Brazilian verb conjugations and vocabulary\n`;
+        }
+        
+        // NEW: Special instructions for formality issues
+        if (hasFormalityIssues) {
+          const expectedFormality = formality || 'neutral';
+          if (expectedFormality === 'formal') {
+            prompt += `   - Adjust to FORMAL tone:\n`;
+            prompt += `     • Use formal pronouns (você, senhor/senhora)\n`;
+            prompt += `     • Replace casual expressions with formal vocabulary\n`;
+          } else if (expectedFormality === 'informal') {
+            prompt += `   - Adjust to INFORMAL/CASUAL tone:\n`;
+            prompt += `     • Use conversational language\n`;
+            prompt += `     • Replace overly formal expressions with natural, everyday language\n`;
+          } else {
+            prompt += `   - Adjust to NEUTRAL tone:\n`;
+            prompt += `     • Balance formality - neither too formal nor too casual\n`;
+          }
+        }
+        
+        // Adjust temperature based on issue types
+        const hasGrammarOnly = extra.analysisReport.validationIssues.every(
+          issue => {
+            const type = issue.type.toUpperCase();
+            return type === 'GENDER' || type === 'PLURAL' || type === 'WORD_ORDER';
+          }
+        );
+        
+        if (hasGrammarOnly && !hasVariantIssues && !hasFormalityIssues) {
+          prompt += `   - These are GRAMMAR fixes only - make precise corrections with minimal changes\n`;
+          prompt += `   - For 1-2 issues: rewrite only affected sentences\n`;
+          prompt += `   - For 3+ issues or full text needed: return complete corrected text\n`;
+        } else {
+          prompt += `   - These issues include semantic/translation/style problems - rewrite for natural flow\n`;
+          if (hasVariantIssues || hasFormalityIssues) {
+            prompt += `   - IMPORTANT: Pay special attention to language variant and formality adjustments\n`;
+          }
+        }
+      } else {
+        prompt += `   - Rewrite to sound natural and fluent in ${targetLanguageName}\n`;
+        prompt += `   - Keep meaning identical, improve flow and readability\n`;
+      }
+      
       prompt += `   - Return the COMPLETE rewritten text from start to finish\n`;
       taskNumber++;
     } else if (role === 'technical') {

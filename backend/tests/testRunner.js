@@ -247,16 +247,24 @@ class TestRunner {
     });
 
     // Document Parser Tests
-    await this.runTest('Document Chunk Splitting', async () => {
+    await this.runTest('Document Chunk Splitting (Token-based)', async () => {
+      // Create realistic text with multiple paragraphs
+      const text = 'This is a test paragraph. It has multiple sentences. '.repeat(200); // ~2000 words
+      const chunks = DocumentParser.splitIntoChunks(text, 500, true); // 500 tokens, token mode
+      if (chunks.length < 2) throw new Error('Text splitting failed - expected multiple chunks');
+      // Token chunks can vary in character length, so don't check character limit
+    });
+
+    await this.runTest('Document Chunk Splitting (Character-based)', async () => {
       const text = 'A'.repeat(10000);
-      const chunks = DocumentParser.splitIntoChunks(text, 3000);
+      const chunks = DocumentParser.splitIntoChunks(text, 3000, false); // Character mode
       if (chunks.length < 3) throw new Error('Text splitting failed');
       if (chunks[0].length > 3000) throw new Error('Chunk size limit exceeded');
     });
 
     await this.runTest('Document Chunk Merging', async () => {
       const text = 'Paragraph 1.\n\nParagraph 2.\n\nParagraph 3.';
-      const chunks = DocumentParser.splitIntoChunks(text, 50);
+      const chunks = DocumentParser.splitIntoChunks(text, 50, true); // Token mode
       if (chunks.length === 0) throw new Error('No chunks created');
     });
 

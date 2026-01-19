@@ -863,24 +863,24 @@ function TranslationTab({ settings }) {
           </div>
 
           <div className="form-group">
-            <label>{t('chunkSizeCharacters') || 'Chunk Size (characters)'}</label>
+            <label>{t('chunkSizeTokens') || 'Chunk Size (tokens)'}</label>
             <input
               type="number"
               value={chunkSize}
-              onChange={(e) => setChunkSize(parseInt(e.target.value) || (apiProvider === 'local' ? 6000 : 3000))}
-              min={1000}
-              max={50000}
-              step={500}
+              onChange={(e) => setChunkSize(parseInt(e.target.value) || (apiProvider === 'local' ? 2400 : 2000))}
+              min={500}
+              max={4000}
+              step={100}
             />
             <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
               {documentInfo && recommendations && recommendations[0] ? (
-                <>Recommended: {recommendations[0].recommendedChunkSize.toLocaleString()} chars (from {recommendations[0].model})</>
+                <>Recommended: {recommendations[0].recommendedChunkSize.toLocaleString()} tokens (from {recommendations[0].model})</>
               ) : apiProvider === 'local' && (useLLM || llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled) ? (
-                <>Default: 3500 chars (local with LLM). Smaller chunks help LLM models process text more completely without truncation.</>
+                <>Default: 2400 tokens (local with LLM). Token-based chunking prevents overflow with 4K-8K context models. ~2400 tokens ≈ 9,600 characters.</>
               ) : apiProvider === 'local' ? (
-                <>Default: 6000 chars (local without LLM). Larger chunks are more efficient when using only LibreTranslate.</>
+                <>Default: 3000 tokens (local without LLM). Larger chunks are more efficient when using only LibreTranslate. ~3000 tokens ≈ 12,000 characters.</>
               ) : (
-                <>Default: 3000 chars. Larger chunks = fewer API calls but may hit limits.</>
+                <>Default: 2000 tokens (~8,000 chars). Token-based chunking manages API costs and context limits better.</>
               )}
             </p>
           </div>
@@ -1092,73 +1092,108 @@ function TranslationTab({ settings }) {
                       </div>
                     )}
 
-                    {/* Performance Guard */}
-                    <div>
+                    {/* Smart Pipeline Toggle - NEW */}
+                    <div style={{ borderTop: '1px solid #eef0f5', paddingTop: '12px' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                         <input
                           type="checkbox"
                           checked={llmSkipIfNoIssues}
                           onChange={(e) => setLlmSkipIfNoIssues(e.target.checked)}
                         />
-                        <span style={{ fontWeight: 600 }}>⚡ Skip LLM when no issues are found</span>
+                        <span style={{ fontWeight: 600 }}>🧠 Smart Pipeline (Recommended)</span>
                       </label>
                       <p style={{ fontSize: '0.8em', color: '#666', marginLeft: '28px', marginTop: '4px' }}>
-                        Uses the analysis layer to avoid extra processing when the translation already looks good.
+                        Automatically skips unnecessary LLM stages based on quality score:
                       </p>
+                      <ul style={{ fontSize: '0.75em', color: '#666', marginLeft: '48px', marginTop: '4px' }}>
+                        <li>Score ≥85: Skip all LLM stages</li>
+                        <li>Score 70-85: Run validation only</li>
+                        <li>Score &lt;70: Run full pipeline</li>
+                      </ul>
                     </div>
 
                     {/* Extra LLM Pipeline */}
                     <div style={{ borderTop: '1px solid #eef0f5', paddingTop: '8px' }}>
                       <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px' }}>
-                        🧠 Extra LLM Pipeline (optional)
+                        🔄 LLM Pipeline Stages
                       </label>
-                      <p style={{ fontSize: '0.8em', color: '#666', marginBottom: '8px' }}>
-                        Runs AFTER the main LLM enhancement. Each enabled pass can further change the text.
+                      <p style={{ fontSize: '0.8em', color: '#666', marginBottom: '12px' }}>
+                        <strong>NEW:</strong> Optimized pipeline that runs stages in order. Validation can skip rewrite if translation is already good.
                       </p>
-                      <p style={{ fontSize: '0.8em', color: '#666', marginBottom: '8px' }}>
-                        Recommended models are shown in the custom placeholder; choosing “Use main LLM model” reuses your primary model.
-                      </p>
+                      <div style={{ background: '#f8f9fa', padding: '10px', borderRadius: '6px', marginBottom: '12px' }}>
+                        <p style={{ fontSize: '0.75em', margin: 0 }}>
+                          <strong>Pipeline Flow:</strong><br/>
+                          1️⃣ LibreTranslate → 2️⃣ Text Analyzer (fast) → 3️⃣ Validation (Qwen) → 4️⃣ Rewrite (LLaMA, if needed) → 5️⃣ Technical Check (Mistral, optional)
+                        </p>
+                      </div>
                       {[
-                        { key: 'validation', label: 'Validation', hint: 'Recommended: qwen2.5:7b', recommended: 'qwen2.5:7b' },
-                        { key: 'rewrite', label: 'Rewrite', hint: 'Recommended: llama3.1:8b', recommended: 'llama3.1:8b' },
-                        { key: 'technical', label: 'Technical check', hint: 'Recommended: mistral:7b', recommended: 'mistral:7b' }
+                        { 
+                          key: 'validation', 
+                          label: '🔍 Validation', 
+                          hint: 'Recommended: qwen2.5:7b', 
+                          recommended: 'qwen2.5:7b',
+                          description: 'Detects translation issues (grammar, meaning). Returns "OK" or list of issues. ~200 tokens output.',
+                          alwaysEnabled: false
+                        },
+                        { 
+                          key: 'rewrite', 
+                          label: '✏️ Rewrite', 
+                          hint: 'Recommended: llama3.1:8b', 
+                          recommended: 'llama3.1:8b',
+                          description: 'Rewrites text ONLY if validation found issues. Fixes grammar/semantic problems. ~1600 tokens output.',
+                          alwaysEnabled: false
+                        },
+                        { 
+                          key: 'technical', 
+                          label: '🔧 Technical Check', 
+                          hint: 'Recommended: mistral:7b', 
+                          recommended: 'mistral:7b',
+                          description: 'Optional final review for technical accuracy, terminology, and formatting. ~1600 tokens output.',
+                          alwaysEnabled: false
+                        }
                       ].map(stage => (
-                        <div key={stage.key} style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
-                          <input
-                            type="checkbox"
-                            checked={llmPipeline[stage.key].enabled}
-                            onChange={(e) => updatePipelineStage(stage.key, { enabled: e.target.checked })}
-                          />
-                          <span style={{ minWidth: '190px', fontWeight: 600 }}>
-                            {stage.label}
-                            <span style={{ fontSize: '0.75em', color: '#666', marginLeft: '6px' }}>
-                              (recommended {stage.recommended})
-                            </span>
-                          </span>
-                          <select
-                            value={llmPipeline[stage.key].model}
-                            onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
-                            style={{ flex: 1, minWidth: '180px' }}
-                          >
-                            <option value="">Use main LLM model (default)</option>
-                            {ollamaModels.map(model => (
-                              <option key={model.name} value={model.name}>{model.name}</option>
-                            ))}
-                            <option value={`__${stage.key}_custom__`}>Custom...</option>
-                          </select>
-                          {llmPipeline[stage.key].model?.startsWith(`__${stage.key}_custom__`) && (
+                        <div key={stage.key} style={{ marginBottom: '12px', padding: '10px', background: '#fff', border: '1px solid #e0e0e0', borderRadius: '6px' }}>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '6px' }}>
                             <input
-                              type="text"
-                              value={llmPipeline[stage.key].custom || ''}
-                              onChange={(e) => updatePipelineStage(stage.key, { custom: e.target.value })}
-                              placeholder={stage.hint}
-                              style={{ flex: 1, minWidth: '180px' }}
+                              type="checkbox"
+                              checked={llmPipeline[stage.key].enabled}
+                              onChange={(e) => updatePipelineStage(stage.key, { enabled: e.target.checked })}
+                              style={{ marginTop: '2px' }}
                             />
-                          )}
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.9em' }}>
+                                {stage.label}
+                              </span>
+                              <p style={{ fontSize: '0.75em', color: '#666', margin: '4px 0 8px 0' }}>
+                                {stage.description}
+                              </p>
+                              <select
+                                value={llmPipeline[stage.key].model}
+                                onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
+                                style={{ width: '100%', fontSize: '0.85em', padding: '6px' }}
+                                disabled={!llmPipeline[stage.key].enabled}
+                              >
+                                <option value="">Use main LLM model (default)</option>
+                                {ollamaModels.map(model => (
+                                  <option key={model.name} value={model.name}>{model.name}</option>
+                                ))}
+                                <option value={`__${stage.key}_custom__`}>Custom...</option>
+                              </select>
+                              {llmPipeline[stage.key].model?.startsWith(`__${stage.key}_custom__`) && (
+                                <input
+                                  type="text"
+                                  value={llmPipeline[stage.key].custom || ''}
+                                  onChange={(e) => updatePipelineStage(stage.key, { custom: e.target.value })}
+                                  placeholder={stage.hint}
+                                  style={{ width: '100%', marginTop: '6px', fontSize: '0.85em', padding: '6px' }}
+                                />
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ))}
-                      <p style={{ fontSize: '0.75em', color: '#666', marginTop: '6px' }}>
-                        Each pass is optional. Leave the model empty to reuse the main LLM model. Validation aims for minimal changes, but it can still rewrite if the model decides to.
+                      <p style={{ fontSize: '0.75em', color: '#666', marginTop: '8px', padding: '8px', background: '#fff9e6', borderRadius: '4px' }}>
+                        💡 <strong>Tip:</strong> Validation stage can skip rewrite if it finds no issues, saving time and reducing timeouts with 7B-8B models.
                       </p>
                     </div>
 

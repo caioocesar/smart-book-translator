@@ -7,6 +7,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import net from 'net';
 
+// Import models
+import Settings from './models/Settings.js';
+
 // Import routes
 import translationRoutes from './routes/translation.js';
 import glossaryRoutes from './routes/glossary.js';
@@ -130,6 +133,10 @@ app.use('/api/plans', apiPlansRoutes);
 app.use('/api/document', documentAnalysisRoutes);
 app.use('/api/local-translation', localTranslationRoutes);
 app.use('/api/ollama', ollamaRoutes);
+
+// Initialize new pipeline settings
+console.log('🔧 Initializing new pipeline settings...');
+Settings.initializeNewPipelineSettings();
 
 // Port info endpoint
 app.get('/api/port-info', (req, res) => {

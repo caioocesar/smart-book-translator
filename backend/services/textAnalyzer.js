@@ -59,8 +59,19 @@ class TextAnalyzer {
       const sentiment = this.analyzeSentiment(translatedText, targetLang);
       const language = this.detectLanguage(translatedText, targetLang);
       
+      // NEW: Analyze grammar for Portuguese
+      let grammarIssues = [];
+      if (targetLang.toLowerCase() === 'pt' || targetLang.toLowerCase() === 'pt-br') {
+        grammarIssues = this.analyzePortugueseGrammar(translatedText);
+      }
+      
+      // NEW: Compute quality score
+      const qualityScore = this.computeQualityScore(
+        readability, sentences, words, sentiment, language, grammarIssues, targetLang
+      );
+      
       // Identify specific issues
-      const issues = this.identifyIssues(readability, sentences, words, sentiment, language, targetLang);
+      const issues = this.identifyIssues(readability, sentences, words, sentiment, language, targetLang, grammarIssues);
       
       const duration = Date.now() - startTime;
 
@@ -70,15 +81,17 @@ class TextAnalyzer {
         words,
         sentiment,
         language,
+        grammarIssues,  // NEW
+        qualityScore,   // NEW
         issues,
         duration,
-        hasIssues: issues.length > 0
+        hasIssues: issues.length > 0 || grammarIssues.length > 0
       };
 
-      if (issues.length > 0) {
-        console.log(`📊 Text Analysis: Found ${issues.length} issue(s) for LLM to address`);
+      if (issues.length > 0 || grammarIssues.length > 0) {
+        console.log(`📊 Text Analysis: Quality score ${qualityScore}/100, found ${issues.length} issue(s) + ${grammarIssues.length} grammar issue(s)`);
       } else {
-        console.log('📊 Text Analysis: No significant issues detected');
+        console.log(`📊 Text Analysis: Quality score ${qualityScore}/100, no significant issues detected`);
       }
 
       return report;
@@ -91,6 +104,8 @@ class TextAnalyzer {
         words: null,
         sentiment: null,
         language: null,
+        grammarIssues: [],
+        qualityScore: 50,  // Default middle score on error
         issues: [],
         duration: 0,
         hasIssues: false,
@@ -251,6 +266,115 @@ class TextAnalyzer {
   }
 
   /**
+   * Analyze Portuguese grammar for common errors
+   * @private
+   */
+  analyzePortugueseGrammar(text) {
+    const issues = [];
+    
+    try {
+      // Gender/Number agreement patterns for Portuguese
+      const patterns = [
+        // Plural noun + singular adjective
+        {
+          regex: /\b(homens|mulheres|pessoas|crianças|animais|livros|dias|anos)\s+(bom|boa|grande|pequeno|pequena|novo|nova|velho|velha)\b/gi,
+          type: 'PLURAL',
+          description: 'Plural noun with singular adjective',
+          suggestion: 'Change adjective to plural form'
+        },
+        // Masculine noun + feminine adjective (common cases)
+        {
+          regex: /\b(homem|menino|pai|filho|irmão|avô|rei|senhor)\s+(boa|pequena|nova|velha|bonita)\b/gi,
+          type: 'GENDER',
+          description: 'Masculine noun with feminine adjective',
+          suggestion: 'Use masculine adjective form'
+        },
+        // Feminine noun + masculine adjective (common cases)
+        {
+          regex: /\b(mulher|menina|mãe|filha|irmã|avó|rainha|senhora)\s+(bom|pequeno|novo|velho|bonito)\b/gi,
+          type: 'GENDER',
+          description: 'Feminine noun with masculine adjective',
+          suggestion: 'Use feminine adjective form'
+        },
+        // "Demasiado" instead of "demais" (European Portuguese vs Brazilian)
+        {
+          regex: /\bdemasiado\b/gi,
+          type: 'WORD_ORDER',
+          description: 'European Portuguese "demasiado" used',
+          suggestion: 'Consider using Brazilian Portuguese "demais" or "muito"'
+        }
+      ];
+
+      for (const pattern of patterns) {
+        const matches = text.matchAll(pattern.regex);
+        for (const match of matches) {
+          issues.push({
+            type: pattern.type,
+            description: pattern.description,
+            example: match[0],
+            position: match.index,
+            suggestion: pattern.suggestion
+          });
+        }
+      }
+
+    } catch (error) {
+      console.warn('Grammar analysis error:', error);
+    }
+
+    return issues;
+  }
+
+  /**
+   * Compute translation quality score (0-100)
+   * @private
+   */
+  computeQualityScore(readability, sentences, words, sentiment, language, grammarIssues, targetLang) {
+    let score = 100;
+
+    // Deduct for readability issues
+    if (readability.score !== null) {
+      if (readability.score < 30) score -= 20;
+      else if (readability.score < 50) score -= 10;
+      else if (readability.score < 60) score -= 5;
+    }
+
+    // Deduct for sentence complexity
+    if (sentences.avgLength > 25) score -= 15;
+    else if (sentences.avgLength > 20) score -= 8;
+    else if (sentences.avgLength > 15) score -= 3;
+
+    // Deduct for long sentences
+    if (sentences.longSentences && sentences.longSentences.length > 0) {
+      score -= Math.min(10, sentences.longSentences.length * 2);
+    }
+
+    // Deduct for choppy writing
+    if (sentences.avgLength < 8 && sentences.count > 5) score -= 8;
+
+    // Deduct for low lexical diversity
+    if (words.diversity !== null) {
+      if (words.diversity < 0.3) score -= 15;
+      else if (words.diversity < 0.4) score -= 10;
+      else if (words.diversity < 0.5) score -= 5;
+    }
+
+    // Deduct for language mismatch (critical)
+    if (language && !language.matches) {
+      score -= 30;
+    }
+
+    // Deduct for grammar issues (Portuguese-specific)
+    if (grammarIssues && grammarIssues.length > 0) {
+      const grammarPenalty = Math.min(20, grammarIssues.length * 4);
+      score -= grammarPenalty;
+    }
+
+    // Ensure score is between 0-100
+    return Math.max(0, Math.min(100, Math.round(score)));
+  }
+
+  /**
    * Detect language and verify it matches target
    * @private
    */
@@ -301,8 +425,45 @@ class TextAnalyzer {
    * Identify specific issues for LLM to fix
    * @private
    */
-  identifyIssues(readability, sentences, words, sentiment, language, targetLang) {
+  identifyIssues(readability, sentences, words, sentiment, language, targetLang, grammarIssues = []) {
     const issues = [];
+
+    // Grammar issues (Portuguese-specific) - HIGHEST PRIORITY
+    if (grammarIssues && grammarIssues.length > 0) {
+      const genderIssues = grammarIssues.filter(g => g.type === 'GENDER');
+      const pluralIssues = grammarIssues.filter(g => g.type === 'PLURAL');
+      const wordOrderIssues = grammarIssues.filter(g => g.type === 'WORD_ORDER');
+
+      if (genderIssues.length > 0) {
+        issues.push({
+          type: 'grammar_gender',
+          severity: 'high',
+          description: `Found ${genderIssues.length} gender agreement error(s)`,
+          suggestion: 'Fix masculine/feminine adjective agreement',
+          examples: genderIssues.slice(0, 3).map(g => g.example)
+        });
+      }
+
+      if (pluralIssues.length > 0) {
+        issues.push({
+          type: 'grammar_plural',
+          severity: 'high',
+          description: `Found ${pluralIssues.length} plural agreement error(s)`,
+          suggestion: 'Fix singular/plural adjective agreement',
+          examples: pluralIssues.slice(0, 3).map(g => g.example)
+        });
+      }
+
+      if (wordOrderIssues.length > 0) {
+        issues.push({
+          type: 'grammar_word_choice',
+          severity: 'medium',
+          description: `Found ${wordOrderIssues.length} word choice issue(s)`,
+          suggestion: 'Use more natural Brazilian Portuguese expressions',
+          examples: wordOrderIssues.slice(0, 3).map(g => g.example)
+        });
+      }
+    }
 
     // Readability issues
     if (readability.score !== null) {

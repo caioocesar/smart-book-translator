@@ -143,8 +143,29 @@ export function logError(category, message, error, context = {}) {
 
 /**
  * Log informational/success messages
+ * With health check throttling to reduce log spam
  */
+const healthCheckThrottle = new Map(); // Track last log time per category
+const HEALTH_CHECK_LOG_INTERVAL = 60000; // Log health checks max once per 60 seconds
+
 export function logInfo(category, message, context = {}) {
+  // Throttle health check logs
+  const isHealthCheck = message.toLowerCase().includes('health check') || 
+                       message.toLowerCase().includes('status check') ||
+                       category.toLowerCase().includes('health');
+  
+  if (isHealthCheck) {
+    const now = Date.now();
+    const lastLog = healthCheckThrottle.get(category);
+    
+    if (lastLog && (now - lastLog) < HEALTH_CHECK_LOG_INTERVAL) {
+      // Skip this log - too frequent
+      return;
+    }
+    
+    healthCheckThrottle.set(category, now);
+  }
+  
   const infoDetails = {
     category,
     message,

@@ -286,6 +286,41 @@ class LocalTranslationService {
             ];
             const enabledStages = pipelineStages.filter(stage => stage.enabled);
 
+            // NEW: Smart pipeline - early exit based on quality score
+            const smartPipelineEnabled = options.smartPipelineEnabled !== false; // Default: true
+            const qualityThreshold = options.qualityThreshold || 85;
+            
+            if (smartPipelineEnabled && analysisReport && analysisReport.qualityScore) {
+              const score = analysisReport.qualityScore;
+              console.log(`📊 Quality score: ${score}/100 (threshold: ${qualityThreshold})`);
+              
+              if (score >= qualityThreshold) {
+                // Excellent quality - skip all LLM processing
+                llmStats = { skipped: true, reason: 'quality-excellent', qualityScore: score };
+                console.log(`🤖 Skipping all LLM stages (quality score ${score} >= ${qualityThreshold})`);
+                // Return early, skip all LLM processing
+                return {
+                  translatedText,
+                  translatedHtml: null,
+                  batchStats,
+                  llmStats,
+                  analysisReport
+                };
+              } else if (score >= 70 && score < qualityThreshold) {
+                // Good quality - run validation only
+                console.log(`🤖 Good quality (${score}/100) - will run validation stage only`);
+                // Filter to validation stage only
+                pipelineStages.forEach((stage, idx) => {
+                  if (stage.key !== 'validation') {
+                    pipelineStages[idx].enabled = false;
+                  }
+                });
+              } else {
+                // Fair/poor quality - run full pipeline as configured
+                console.log(`🤖 Quality needs improvement (${score}/100) - running full pipeline`);
+              }
+            }
+
             if (skipLLMIfNoIssues && analysisReport && analysisReport.hasIssues === false) {
               llmStats = { skipped: true, reason: 'no-issues' };
               console.log('🤖 Skipping LLM enhancement (no issues detected)');
@@ -312,6 +347,7 @@ class LocalTranslationService {
                   model: llmResult.model,
                   changes: llmResult.changes,
                   issuesAddressed: analysisReport?.issues?.length || 0,
+                  qualityScore: analysisReport?.qualityScore || null,
                   stages: []
                 };
                 console.log(`✓ LLM enhancement completed in ${llmStats.duration}ms`);
@@ -323,10 +359,13 @@ class LocalTranslationService {
               }
             }
 
-            if (enabledStages.length > 0) {
-              const stageList = enabledStages.map(stage => stage.key).join(', ');
+            // Re-filter enabled stages after smart pipeline logic
+            const finalEnabledStages = pipelineStages.filter(stage => stage.enabled);
+            
+            if (finalEnabledStages.length > 0) {
+              const stageList = finalEnabledStages.map(stage => stage.key).join(', ');
               console.log(`🤖 LLM pipeline enabled: ${stageList}`);
-              Logger.logInfo('llm', 'LLM pipeline enabled', { stages: enabledStages.map(stage => stage.key) });
+              Logger.logInfo('llm', 'LLM pipeline enabled', { stages: finalEnabledStages.map(stage => stage.key) });
               if (!llmStats) {
                 llmStats = { stages: [] };
               }
@@ -348,6 +387,7 @@ class LocalTranslationService {
                   });
                 }
                 Logger.logInfo('llm', 'LLM pipeline stage started', { stage: stage.key, model: stage.model });
+                
                 const stageResult = await ollamaService.processTranslation(translatedText, {
                   sourceLang,
                   targetLang,
@@ -360,7 +400,65 @@ class LocalTranslationService {
                   role: stage.role,
                   generationOptions: llmGenerationOptions
                 });
+                
                 const stageDuration = Date.now() - stageStart;
+                
+                // NEW: Handle validation stage specially
+                if (stage.role === 'validation' && stageResult.success && stageResult.validationResult) {
+                  const validation = stageResult.validationResult;
+                  
+                  llmStats.stages.push({
+                    stage: stage.key,
+                    model: stageResult.model,
+                    duration: stageDuration,
+                    validationResult: validation.isOk ? 'OK' : `${validation.issues.length} issues`,
+                    issues: validation.issues
+                  });
+                  
+                  Logger.logInfo('llm', 'Validation stage completed', {
+                    isOk: validation.isOk,
+                    issueCount: validation.issues.length
+                  });
+                  
+                  if (validation.isOk) {
+                    // Translation is OK - skip remaining stages (rewrite, technical)
+                    console.log('✓ Validation passed - skipping rewrite and technical stages');
+                    for (let i = 0; i < pipelineStages.length; i++) {
+                      if (pipelineStages[i].key !== 'validation') {
+                        pipelineStages[i].enabled = false;
+                      }
+                    }
+                    
+                    if (onPipelineStage) {
+                      onPipelineStage({
+                        stage: stage.key,
+                        status: 'success',
+                        model: stageResult.model,
+                        result: 'OK - translation approved'
+                      });
+                    }
+                  } else {
+                    // Has issues - prepare rewrite instructions
+                    console.log(`⚠️ Validation found ${validation.issues.length} issue(s) - will proceed to rewrite`);
+                    
+                    // Store validation issues for rewrite stage
+                    if (!analysisReport) {
+                      analysisReport = { issues: [] };
+                    }
+                    analysisReport.validationIssues = validation.issues;
+                    
+                    if (onPipelineStage) {
+                      onPipelineStage({
+                        stage: stage.key,
+                        status: 'success',
+                        model: stageResult.model,
+                        result: `Found ${validation.issues.length} issues`
+                      });
+                    }
+                  }
+                  continue; // Don't update translatedText for validation stage
+                }
+                
                 if (stageResult.success) {
                   translatedText = stageResult.enhancedText;
                   llmStats.stages.push({

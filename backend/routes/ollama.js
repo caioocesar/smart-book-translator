@@ -1,7 +1,11 @@
 import express from 'express';
 import ollamaService from '../services/ollamaService.js';
 import Logger from '../utils/logger.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import os from 'os';
 
+const execAsync = promisify(exec);
 const router = express.Router();
 
 /**
@@ -29,6 +33,70 @@ router.post('/start', async (req, res, next) => {
   } catch (error) {
     Logger.logError('ollama', 'Failed to start service', error, {});
     next(error);
+  }
+});
+
+/**
+ * POST /api/ollama/install
+ * Install Ollama automatically
+ */
+router.post('/install', async (req, res, next) => {
+  try {
+    const platform = os.platform();
+    let command;
+    let output = '';
+
+    if (platform === 'win32') {
+      // Windows: Run PowerShell script
+      command = 'powershell -ExecutionPolicy Bypass -File scripts\\install-ollama-windows.ps1';
+    } else if (platform === 'linux' || platform === 'darwin') {
+      // Linux/Mac: Run bash script or curl command
+      const scriptPath = platform === 'linux' ? 'scripts/install-ollama-linux.sh' : 'scripts/install-ollama-macos.sh';
+      command = `bash ${scriptPath}`;
+      
+      // Fallback to curl if script doesn't exist
+      try {
+        await execAsync(`test -f ${scriptPath}`);
+      } catch {
+        command = 'curl -fsSL https://ollama.com/install.sh | sh';
+      }
+    } else {
+      return res.json({
+        success: false,
+        message: `Unsupported platform: ${platform}. Please install manually from ollama.com`
+      });
+    }
+
+    Logger.logInfo('ollama', 'Starting automatic installation', { platform, command });
+
+    // Execute installation command
+    try {
+      const { stdout, stderr } = await execAsync(command, { timeout: 300000 }); // 5 minute timeout
+      output = stdout + (stderr ? '\n' + stderr : '');
+      
+      Logger.logInfo('ollama', 'Installation completed', { output: output.substring(0, 500) });
+      
+      res.json({
+        success: true,
+        message: 'Ollama installation started successfully. Please restart your computer.',
+        output: output
+      });
+    } catch (execError) {
+      output = execError.stdout + '\n' + execError.stderr;
+      Logger.logError('ollama', 'Installation failed', execError, { output: output.substring(0, 500) });
+      
+      res.json({
+        success: false,
+        message: `Installation failed: ${execError.message}. Please try manual installation from ollama.com`,
+        output: output
+      });
+    }
+  } catch (error) {
+    Logger.logError('ollama', 'Installation error', error, {});
+    res.status(500).json({
+      success: false,
+      message: `Error: ${error.message}`
+    });
   }
 });
 
