@@ -310,7 +310,12 @@ class TestRunner {
       if (htmlMode && !/<[^>]+>/.test(result.translatedText)) {
         throw new Error('HTML mode lost tags in translation output');
       }
-      if (useGlossary && !/\\bMundo\\b/i.test(result.translatedText)) {
+      if (useGlossary && !/\bMundo\b/i.test(result.translatedText)) {
+        const preview =
+          typeof result.translatedText === 'string'
+            ? result.translatedText
+            : String(result.translatedText);
+        console.warn('⚠️ Glossary enforcement failed. Translated text:', preview);
         throw new Error('Glossary term was not enforced');
       }
     };

@@ -732,6 +732,12 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
 
           // Check if LLM enhancement is enabled
           const useLLM = apiOptions?.useLLM || false;
+          const llmPipeline = apiOptions?.llmPipeline || {};
+          const pipelineStages = [
+            llmPipeline?.validation?.enabled ? 'validation' : null,
+            llmPipeline?.rewrite?.enabled ? 'rewrite' : null,
+            llmPipeline?.technical?.enabled ? 'technical' : null
+          ].filter(Boolean);
           
           // If LLM is enabled, emit status update before enhancement
           if (useLLM) {
@@ -754,13 +760,33 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
             if (!jobCheck) return true;
             return jobCheck.status === 'paused' || jobCheck.status === 'cancelled';
           };
+          const onPipelineStage = (payload) => {
+            if (!payload?.stage) return;
+            const layer = payload.status === 'start'
+              ? `llm-pipeline-${payload.stage}`
+              : 'llm-enhancing';
+            TranslationChunk.updateProcessingLayer(chunk.id, layer);
+            io.to(`job-${jobId}`).emit('chunk-progress', {
+              jobId,
+              chunkId: chunk.id,
+              chunkIndex: chunk.chunk_index,
+              status: 'translating',
+              layer,
+              progress: Math.round(((i + 0.5) / totalChunks) * 100)
+            });
+          };
 
           result = await localTranslationService.translate(
             inputForLocal,
             job.source_language,
             job.target_language,
             localGlossaryTerms,
-            { ...apiOptions, abortCheck } // Pass options including htmlMode, useLLM, formality, etc.
+            {
+              ...apiOptions,
+              abortCheck,
+              onPipelineStage,
+              llmPipeline
+            } // Pass options including htmlMode, useLLM, formality, etc.
           );
           if (result?.aborted) {
             TranslationChunk.updateProcessingLayer(chunk.id, null);

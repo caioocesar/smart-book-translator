@@ -473,7 +473,8 @@ class OllamaService {
       enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
       enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang); // run twice to catch multi-line prefixes
 
-      const invalid = this.isInvalidEnhancement(enhancedText, translatedText);
+      const invalidReason = this.getInvalidEnhancementReason(enhancedText, translatedText, role);
+      const invalid = Boolean(invalidReason);
 
       // Validate language/quality and retry once if needed.
       const isEnglishLeak = this.detectEnglishLeakage(enhancedText, targetLang);
@@ -494,10 +495,19 @@ class OllamaService {
       }
 
       // If still invalid after retry, fail closed (keep original translation).
-      if (this.isInvalidEnhancement(enhancedText, translatedText)) {
+      const finalInvalidReason = this.getInvalidEnhancementReason(enhancedText, translatedText, role);
+      if (finalInvalidReason) {
+        Logger.logInfo('ollama', 'LLM enhancement rejected', {
+          reason: finalInvalidReason,
+          role: role,
+          preview: enhancedText.slice(0, 240),
+          originalLength: translatedText.length,
+          enhancedLength: enhancedText.length,
+          fullOutput: enhancedText.length < 500 ? enhancedText : enhancedText.slice(0, 500) + '...'
+        });
         return {
           success: false,
-          error: 'LLM output looked like meta text or a list, not a real translation',
+          error: `LLM output rejected: ${finalInvalidReason}`,
           originalText: translatedText
         };
       }
@@ -594,6 +604,9 @@ class OllamaService {
     if (hasHtmlTags) {
       prompt += `⚠️ CRITICAL: This text contains HTML formatting tags. You MUST preserve ALL HTML tags exactly as they are. Do not remove, modify, or add any HTML tags.\n\n`;
     }
+    prompt += `⚠️ CRITICAL OUTPUT FORMAT:\n`;
+    prompt += `- Return ONLY the improved translation text\n`;
+    prompt += `- Do NOT include headings, bullet points, numbered lists, or commentary\n\n`;
 
     // Add text analysis issues if available (from "1.5 layer")
     if (extra?.analysisReport && extra.analysisReport.hasIssues) {
@@ -640,6 +653,8 @@ class OllamaService {
       prompt += `   - Verify that the meaning matches the original intent\n`;
       prompt += `   - Fix mistranslations with MINIMAL edits\n`;
       prompt += `   - Preserve structure and wording unless incorrect\n`;
+      prompt += `   - CRITICAL: Return the COMPLETE translation with ALL corrections applied\n`;
+      prompt += `   - Do NOT return only the corrected parts - return the ENTIRE text\n`;
       taskNumber++;
     } else if (role === 'rewrite') {
       prompt += `${taskNumber}. NATURAL REWRITE:\n`;
@@ -749,27 +764,45 @@ class OllamaService {
    * @private
    */
   isInvalidEnhancement(enhanced, original) {
+    return Boolean(this.getInvalidEnhancementReason(enhanced, original));
+  }
+
+  /**
+   * Explain why an enhancement is considered invalid.
+   * @private
+   */
+  getInvalidEnhancementReason(enhanced, original, role = 'enhance') {
     try {
-      const e = String(enhanced || '').trim().toLowerCase();
-      const o = String(original || '').trim().toLowerCase();
-      if (!e) return true;
+      const e = String(enhanced || '').trim();
+      const o = String(original || '').trim();
+      if (!e) return 'empty-output';
 
       // Meta prefixes (even if sanitization missed them)
       const meta = /(here('?s)?\s+is\s+the\s+(enhanced|improved)|enhanced\s+tradu|tradu[cç][aã]o\s+aprimorad|improved\s+translation)/i;
-      if (meta.test(e)) return true;
+      if (meta.test(e)) return 'meta-prefix';
 
       // Looks like a numbered list that wasn't in the original
       const listItems = (e.match(/\b\d+\.\s+/g) || []).length;
       const originalListItems = (o.match(/\b\d+\.\s+/g) || []).length;
-      if (listItems >= 2 && originalListItems === 0) return true;
+      if (listItems >= 2 && originalListItems === 0) return 'unexpected-list';
 
       // If output is dramatically shorter or longer, it's suspicious
-      const ratio = enhanced.length / Math.max(1, original.length);
-      if (ratio < 0.5 || ratio > 1.8) return true;
+      // EXCEPT for validation mode, which makes minimal edits and may return partial corrections
+      const ratio = e.length / Math.max(1, o.length);
+      
+      if (role === 'validation') {
+        // Validation mode: very lenient (makes minimal fixes, may be shorter)
+        if (ratio < 0.15) return `too-short(${ratio.toFixed(2)})`;
+        if (ratio > 2.5) return `too-long(${ratio.toFixed(2)})`;
+      } else {
+        // Other modes: moderate thresholds
+        if (ratio < 0.3) return `too-short(${ratio.toFixed(2)})`;
+        if (ratio > 2.0) return `too-long(${ratio.toFixed(2)})`;
+      }
 
-      return false;
+      return null;
     } catch {
-      return true;
+      return 'validation-error';
     }
   }
 

@@ -42,11 +42,12 @@ class GlossaryProcessor {
 
     sortedTerms.forEach((term, index) => {
       try {
-        // Use placeholders designed to survive translation.
-        // - HTML mode: use HTML comment (LibreTranslate preserves comments).
-        // - Text mode: use a stable ASCII token.
-        // Use a stable ASCII token even in HTML mode to avoid comment stripping.
-        const placeholder = `__GTERM_${index}_${timestamp}__`;
+        // Use placeholder formats that survive translation:
+        // - HTML mode: XML-style self-closing tags (XLIFF-like), preserved by translators.
+        // - Text mode: bracketed GTERM tokens, preserved in plain text.
+        const placeholder = htmlMode
+          ? `<x id="gterm${index}t${timestamp}"/>`
+          : `⟪GTERM:${index}:${timestamp}⟫`;
         
         // Escape special regex characters
         const escapedTerm = term.source_term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -105,6 +106,28 @@ class GlossaryProcessor {
     for (const [placeholder, termInfo] of placeholderMap.entries()) {
       try {
         console.log(`  → Searching for: "${placeholder}" → "${termInfo.targetTerm}"`);
+        
+        // NEW FORMAT: XML-style tags <x id="gterm0t1234567890"/>
+        if (typeof placeholder === 'string' && placeholder.startsWith('<x id="gterm')) {
+          const xMatch = placeholder.match(/<x id="gterm(\d+)t\d+"\/>/);
+          const idx = xMatch?.[1];
+          if (idx) {
+            // Match with flexible spacing/quotes
+            const xRegex = new RegExp(
+              `<x\\s+id\\s*=\\s*["']?gterm${idx}t\\d+["']?\\s*\\/?>`,
+              'gi'
+            );
+            const xMatches = (finalText.match(xRegex) || []).length;
+            if (xMatches > 0) {
+              finalText = finalText.replace(xRegex, termInfo.targetTerm);
+              restored += xMatches;
+              this.stats.postProcessed++;
+              console.log(`✓ Restored XML placeholder: gterm${idx}t* → "${termInfo.targetTerm}"`);
+              continue;
+            }
+          }
+        }
+        
         // Backward-compat: older placeholder format used by some in-progress jobs:
         // ⟪GTERM:index:timestamp⟫
         if (typeof placeholder === 'string' && placeholder.startsWith('⟪GTERM:')) {
@@ -165,21 +188,37 @@ class GlossaryProcessor {
           this.stats.postProcessed++;
         } else {
           // Placeholder might have been altered - try flexible matching.
-          // For __GTERM_index_timestamp__, match the same index with any timestamp.
+          // For __GTERM_index_timestamp__ (legacy), match the same index with any timestamp.
           const m = typeof placeholder === 'string' ? placeholder.match(/^__GTERM_(\d+)_\d+__$/) : null;
-          const idx = m?.[1];
-          const flexibleRegex = idx ? new RegExp(`__GTERM_${idx}_\\d+__`, 'g') : null;
-          matches = flexibleRegex ? (finalText.match(flexibleRegex) || []).length : 0;
+          const mXml = typeof placeholder === 'string' ? placeholder.match(/<x id="gterm(\d+)t\d+"\/>/i) : null;
+          const idx = m?.[1] || mXml?.[1];
           
-          if (matches > 0) {
-            finalText = finalText.replace(flexibleRegex, termInfo.targetTerm);
-            restored += matches;
-            this.stats.postProcessed++;
-            console.log(`✓ Restored placeholder with flexible matching: GTERM:${idx}:* → "${termInfo.targetTerm}"`);
-          } else {
+          if (idx) {
+            // Try XML format flexible match
+            const xmlFlexRegex = new RegExp(`<x\\s+id\\s*=\\s*["']?gterm${idx}t\\d+["']?\\s*\\/?>`, 'gi');
+            matches = (finalText.match(xmlFlexRegex) || []).length;
+            if (matches > 0) {
+              finalText = finalText.replace(xmlFlexRegex, termInfo.targetTerm);
+              restored += matches;
+              this.stats.postProcessed++;
+              console.log(`✓ Restored XML placeholder with flexible matching: gterm${idx}t* → "${termInfo.targetTerm}"`);
+              continue;
+            }
+            
+            // Try legacy __GTERM__ format
+            const flexibleRegex = new RegExp(`__GTERM_${idx}_\\d+__`, 'g');
+            matches = (finalText.match(flexibleRegex) || []).length;
+            if (matches > 0) {
+              finalText = finalText.replace(flexibleRegex, termInfo.targetTerm);
+              restored += matches;
+              this.stats.postProcessed++;
+              console.log(`✓ Restored placeholder with flexible matching: GTERM:${idx}:* → "${termInfo.targetTerm}"`);
+              continue;
+            }
+            
             // Extra fallback: placeholder might have had brackets changed (<< >>) or removed.
-            const looseRegex = idx ? new RegExp(`GTERM[\\W_]*${idx}[\\W_]*\\d+`, 'g') : null;
-            const looseMatches = looseRegex ? (finalText.match(looseRegex) || []).length : 0;
+            const looseRegex = new RegExp(`GTERM[\\W_]*${idx}[\\W_]*\\d+`, 'g');
+            const looseMatches = (finalText.match(looseRegex) || []).length;
             if (looseMatches > 0) {
               finalText = finalText.replace(looseRegex, termInfo.targetTerm);
               restored += looseMatches;
@@ -241,30 +280,56 @@ class GlossaryProcessor {
 
     let out = text;
     let totalReplacements = 0;
+    let totalMatches = 0;
     for (const term of glossaryTerms) {
       const source = term?.source_term;
       const target = term?.target_term;
       if (!source || !target) continue;
       const escaped = String(source).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+      const matchesInText = (out.match(regex) || []).length;
+      totalMatches += matchesInText;
       const beforeLength = out.length;
       out = replaceOutsideTags(out, regex, target);
-      if (out.length !== beforeLength || !out.includes(source)) {
-        const matches = (text.match(regex) || []).length;
-        if (matches > 0) {
-          console.log(`  ✓ Enforced: "${source}" → "${target}" (${matches} occurrence(s))`);
-          totalReplacements += matches;
-        }
+      if (matchesInText > 0) {
+        console.log(`  ✓ Enforced: "${source}" → "${target}" (${matchesInText} occurrence(s))`);
+        totalReplacements += matchesInText;
       }
     }
     
     if (totalReplacements > 0) {
       console.log(`✓ Glossary enforcement: ${totalReplacements} term(s) applied`);
+    } else if (totalMatches === 0) {
+      console.log(`ℹ️ Glossary enforcement: No source terms present to replace`);
     } else {
-      console.log(`⚠️ Glossary enforcement: No terms found to replace in text`);
+      console.log(`⚠️ Glossary enforcement: Source terms detected but no replacements made`);
     }
     
     return out;
+  }
+
+  /**
+   * Check if glossary target terms are present in text (best-effort).
+   * Uses placeholderMap so we only require terms that were applied.
+   * @param {string} text
+   * @param {Map} placeholderMap
+   * @returns {boolean}
+   */
+  arePlaceholderTargetsPresent(text, placeholderMap) {
+    if (!text || !placeholderMap || placeholderMap.size === 0) return true;
+    const stripTags = (input) => String(input).replace(/<[^>]+>/g, ' ');
+    const normalized = stripTags(text);
+    const escape = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    for (const termInfo of placeholderMap.values()) {
+      const target = termInfo?.targetTerm;
+      if (!target) continue;
+      const regex = new RegExp(`\\b${escape(target)}\\b`, 'i');
+      if (!regex.test(normalized)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -284,7 +349,9 @@ class GlossaryProcessor {
     const indexToSource = new Map();
     const extractIndex = (placeholder) => {
       if (typeof placeholder !== 'string') return null;
-      let match = placeholder.match(/__GTERM_(\d+)_\d+__/);
+      let match = placeholder.match(/<x id="gterm(\d+)t\d+"\/>/i);
+      if (match?.[1]) return match[1];
+      match = placeholder.match(/__GTERM_(\d+)_\d+__/);
       if (match?.[1]) return match[1];
       match = placeholder.match(/<!--\s*GTERM\s*:\s*(\d+)\s*:\s*\d+\s*-->/);
       if (match?.[1]) return match[1];
@@ -304,6 +371,7 @@ class GlossaryProcessor {
 
     const tokenRegex = new RegExp(
       [
+        '<x\\s+id\\s*=\\s*["\']?gterm(\\d+)t\\d+["\']?\\s*\\/?>', // <x id="gterm0t123456"/> (NEW)
         '__GTERM_(\\d+)_\\d+__',                        // __GTERM_0_123456__
         '<!--\\s*GTERM\\s*:\\s*(\\d+)\\s*:\\s*\\d+\\s*-->', // <!-- GTERM:0:123456 -->
         '⟪\\s*GTERM\\s*:\\s*(\\d+)\\s*:\\s*\\d+\\s*⟫', // ⟪GTERM:0:123456⟫
@@ -316,7 +384,7 @@ class GlossaryProcessor {
     );
 
     const cleaned = translatedText.replace(tokenRegex, (...args) => {
-      const groups = args.slice(1, 8);  // Now we have 7 capture groups (6 with index + 1 without)
+      const groups = args.slice(1, 9);  // Now we have 8 capture groups (7 with index + 1 without)
       const idx = groups.find(Boolean);
       const sourceTerm = idx ? indexToSource.get(String(idx)) : null;
       const match = args[0];

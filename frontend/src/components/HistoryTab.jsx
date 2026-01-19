@@ -669,6 +669,44 @@ function HistoryTab({ settings, onTranslationReady }) {
     return icons[status] || '●';
   };
 
+  const getLayerMeta = (layer) => {
+    if (layer?.startsWith('llm-pipeline-')) {
+      const stage = layer.replace('llm-pipeline-', '');
+      return {
+        label: `🧠 Extra LLM (${stage})`,
+        title: `Extra LLM pipeline stage: ${stage}`,
+        badgeBg: 'rgba(255,152,0,0.12)',
+        badgeColor: '#b26a00',
+        description: `🧠 Extra LLM pipeline (${stage})`
+      };
+    }
+    if (layer === 'llm-enhancing') {
+      return {
+        label: '🤖 2nd Layer (LLM)',
+        title: '2nd layer: LLM enhancement (Ollama)',
+        badgeBg: 'rgba(156,39,176,0.12)',
+        badgeColor: '#6a1b9a',
+        description: '🤖 2nd Layer (LLM enhancement)'
+      };
+    }
+    if (layer === 'translating') {
+      return {
+        label: '🔄 1st Layer (Translate)',
+        title: '1st layer: translation (LibreTranslate/API)',
+        badgeBg: 'rgba(23,162,184,0.12)',
+        badgeColor: '#0f6674',
+        description: '🔄 1st Layer (translation)'
+      };
+    }
+    return {
+      label: '🔄 Translating',
+      title: 'Translation in progress',
+      badgeBg: 'rgba(23,162,184,0.12)',
+      badgeColor: '#0f6674',
+      description: '🔄 Translation in progress'
+    };
+  };
+
   const canGenerateDocument = (job) => {
     return job.completed_chunks === job.total_chunks && job.failed_chunks === 0;
   };
@@ -1018,43 +1056,33 @@ function HistoryTab({ settings, onTranslationReady }) {
                             >
                               {chunk.status.toUpperCase()}
                             </span>
-                            {chunk.status === 'translating' && (
-                              <span
-                                className="chunk-layer-badge"
-                                title={
-                                  chunk.processing_layer === 'llm-enhancing'
-                                    ? '2nd layer: LLM enhancement (Ollama)'
-                                    : '1st layer: translation (LibreTranslate/API)'
-                                }
-                                style={{
-                                  marginLeft: '8px',
-                                  padding: '2px 8px',
-                                  borderRadius: '999px',
-                                  fontSize: '0.75em',
-                                  fontWeight: 700,
-                                  border: '1px solid rgba(0,0,0,0.12)',
-                                  backgroundColor:
-                                    chunk.processing_layer === 'llm-enhancing'
-                                      ? 'rgba(156,39,176,0.12)'
-                                      : 'rgba(23,162,184,0.12)',
-                                  color: chunk.processing_layer === 'llm-enhancing' ? '#6a1b9a' : '#0f6674'
-                                }}
-                              >
-                                {chunk.processing_layer === 'llm-enhancing'
-                                  ? '🤖 2nd Layer (LLM)'
-                                  : chunk.processing_layer === 'translating'
-                                    ? '🔄 1st Layer (Translate)'
-                                    : '🔄 Translating'}
-                              </span>
-                            )}
+                            {chunk.status === 'translating' && (() => {
+                              const layerMeta = getLayerMeta(chunk.processing_layer);
+                              return (
+                                <span
+                                  className="chunk-layer-badge"
+                                  title={layerMeta.title}
+                                  style={{
+                                    marginLeft: '8px',
+                                    padding: '2px 8px',
+                                    borderRadius: '999px',
+                                    fontSize: '0.75em',
+                                    fontWeight: 700,
+                                    border: '1px solid rgba(0,0,0,0.12)',
+                                    backgroundColor: layerMeta.badgeBg,
+                                    color: layerMeta.badgeColor
+                                  }}
+                                >
+                                  {layerMeta.label}
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div className="chunk-preview">
                             {chunk.status === 'translating' && (
                               <div style={{ marginBottom: '10px', fontSize: '0.8rem', color: '#495057' }}>
                                 <strong>Layer:</strong>{' '}
-                                {chunk.processing_layer === 'llm-enhancing'
-                                  ? '🤖 2nd Layer (LLM enhancement)'
-                                  : '🔄 1st Layer (translation)'}
+                                {getLayerMeta(chunk.processing_layer).description}
                               </div>
                             )}
                             <div className="chunk-text">

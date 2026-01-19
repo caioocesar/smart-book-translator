@@ -71,6 +71,7 @@ class LocalTranslationService {
   async translate(text, sourceLang, targetLang, glossaryTerms = [], options = {}) {
     const startTime = Date.now();
     const shouldAbort = typeof options.abortCheck === 'function' ? options.abortCheck : null;
+    const onPipelineStage = typeof options.onPipelineStage === 'function' ? options.onPipelineStage : null;
 
     try {
       if (shouldAbort && shouldAbort()) {
@@ -187,6 +188,7 @@ class LocalTranslationService {
 
       // Step 5: Apply glossary post-processing
       let glossaryStats = {};
+      let glossaryBaselineText = translatedText;
       if (placeholderMap.size > 0) {
         const postProcessResult = this.glossaryProcessor.applyPostProcessing(
           translatedText,
@@ -200,6 +202,9 @@ class LocalTranslationService {
           translatedText,
           placeholderMap
         );
+
+        // Capture a glossary-safe baseline before optional LLM processing
+        glossaryBaselineText = translatedText;
       }
       
       // Enforce glossary terms as a final pass (best-effort), even if no placeholders matched
@@ -256,6 +261,31 @@ class LocalTranslationService {
           const ollamaRunning = await ollamaService.isRunning();
           
           if (ollamaRunning) {
+            const pipelineStages = [
+              {
+                key: 'validation',
+                role: 'validation',
+                enabled: !!llmPipeline?.validation?.enabled,
+                model: llmPipeline?.validation?.model || options.ollamaValidationModel || Settings.get('ollamaValidationModel') || null,
+                improveStructure: false
+              },
+              {
+                key: 'rewrite',
+                role: 'rewrite',
+                enabled: !!llmPipeline?.rewrite?.enabled,
+                model: llmPipeline?.rewrite?.model || options.ollamaRewriteModel || Settings.get('ollamaRewriteModel') || null,
+                improveStructure: true
+              },
+              {
+                key: 'technical',
+                role: 'technical',
+                enabled: !!llmPipeline?.technical?.enabled,
+                model: llmPipeline?.technical?.model || options.ollamaTechnicalModel || Settings.get('ollamaTechnicalModel') || null,
+                improveStructure: false
+              }
+            ];
+            const enabledStages = pipelineStages.filter(stage => stage.enabled);
+
             if (skipLLMIfNoIssues && analysisReport && analysisReport.hasIssues === false) {
               llmStats = { skipped: true, reason: 'no-issues' };
               console.log('🤖 Skipping LLM enhancement (no issues detected)');
@@ -288,67 +318,92 @@ class LocalTranslationService {
                 if (analysisReport?.hasIssues) {
                   console.log(`  → Addressed ${analysisReport.issues.length} identified issue(s)`);
                 }
-                
-                const pipelineStages = [
-                  {
-                    key: 'validation',
-                    role: 'validation',
-                    enabled: !!llmPipeline?.validation?.enabled,
-                    model: llmPipeline?.validation?.model || options.ollamaValidationModel || Settings.get('ollamaValidationModel') || null,
-                    improveStructure: false
-                  },
-                  {
-                    key: 'rewrite',
-                    role: 'rewrite',
-                    enabled: !!llmPipeline?.rewrite?.enabled,
-                    model: llmPipeline?.rewrite?.model || options.ollamaRewriteModel || Settings.get('ollamaRewriteModel') || null,
-                    improveStructure: true
-                  },
-                  {
-                    key: 'technical',
-                    role: 'technical',
-                    enabled: !!llmPipeline?.technical?.enabled,
-                    model: llmPipeline?.technical?.model || options.ollamaTechnicalModel || Settings.get('ollamaTechnicalModel') || null,
-                    improveStructure: false
-                  }
-                ];
-
-                for (const stage of pipelineStages) {
-                  if (!stage.enabled) continue;
-                  const stageStart = Date.now();
-                  const stageResult = await ollamaService.processTranslation(translatedText, {
-                    sourceLang,
-                    targetLang,
-                    formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
-                    improveStructure: stage.improveStructure,
-                    verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
-                    glossaryTerms: glossaryTerms,
-                    model: stage.model,
-                    analysisReport: analysisReport,
-                    role: stage.role,
-                    generationOptions: llmGenerationOptions
-                  });
-                  const stageDuration = Date.now() - stageStart;
-                  if (stageResult.success) {
-                    translatedText = stageResult.enhancedText;
-                    llmStats.stages.push({
-                      stage: stage.key,
-                      model: stageResult.model,
-                      duration: stageDuration,
-                      changes: stageResult.changes
-                    });
-                  } else {
-                    llmStats.stages.push({
-                      stage: stage.key,
-                      model: stage.model,
-                      duration: stageDuration,
-                      error: stageResult.error || 'failed'
-                    });
-                    console.warn(`⚠️ LLM pipeline stage failed (${stage.key}):`, stageResult.error);
-                  }
-                }
               } else {
                 console.warn('⚠️ LLM enhancement failed:', llmResult.error);
+              }
+            }
+
+            if (enabledStages.length > 0) {
+              const stageList = enabledStages.map(stage => stage.key).join(', ');
+              console.log(`🤖 LLM pipeline enabled: ${stageList}`);
+              Logger.logInfo('llm', 'LLM pipeline enabled', { stages: enabledStages.map(stage => stage.key) });
+              if (!llmStats) {
+                llmStats = { stages: [] };
+              }
+              if (!llmStats.stages) {
+                llmStats.stages = [];
+              }
+              if (llmStats.duration == null && llmStats.model == null) {
+                Logger.logInfo('llm', 'LLM pipeline running without base enhancement', {});
+              }
+
+              for (const stage of pipelineStages) {
+                if (!stage.enabled) continue;
+                const stageStart = Date.now();
+                if (onPipelineStage) {
+                  onPipelineStage({
+                    stage: stage.key,
+                    status: 'start',
+                    model: stage.model
+                  });
+                }
+                Logger.logInfo('llm', 'LLM pipeline stage started', { stage: stage.key, model: stage.model });
+                const stageResult = await ollamaService.processTranslation(translatedText, {
+                  sourceLang,
+                  targetLang,
+                  formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
+                  improveStructure: stage.improveStructure,
+                  verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
+                  glossaryTerms: glossaryTerms,
+                  model: stage.model,
+                  analysisReport: analysisReport,
+                  role: stage.role,
+                  generationOptions: llmGenerationOptions
+                });
+                const stageDuration = Date.now() - stageStart;
+                if (stageResult.success) {
+                  translatedText = stageResult.enhancedText;
+                  llmStats.stages.push({
+                    stage: stage.key,
+                    model: stageResult.model,
+                    duration: stageDuration,
+                    changes: stageResult.changes
+                  });
+                  if (onPipelineStage) {
+                    onPipelineStage({
+                      stage: stage.key,
+                      status: 'success',
+                      model: stageResult.model
+                    });
+                  }
+                  Logger.logInfo('llm', 'LLM pipeline stage completed', {
+                    stage: stage.key,
+                    model: stageResult.model,
+                    duration: stageDuration
+                  });
+                } else {
+                  llmStats.stages.push({
+                    stage: stage.key,
+                    model: stage.model,
+                    duration: stageDuration,
+                    error: stageResult.error || 'failed'
+                  });
+                  if (onPipelineStage) {
+                    onPipelineStage({
+                      stage: stage.key,
+                      status: 'error',
+                      model: stage.model,
+                      error: stageResult.error || 'failed'
+                    });
+                  }
+                  Logger.logInfo('llm', 'LLM pipeline stage failed', {
+                    stage: stage.key,
+                    model: stage.model,
+                    duration: stageDuration,
+                    error: stageResult.error || 'failed'
+                  });
+                  console.warn(`⚠️ LLM pipeline stage failed (${stage.key}):`, stageResult.error);
+                }
               }
             }
           } else {
@@ -374,6 +429,19 @@ class LocalTranslationService {
           glossaryTerms
         );
       }
+
+      // Glossary enforcement already ran after LLM, so we trust the output.
+      // The aggressive revert was causing valid LLM corrections to be discarded.
+      // if (placeholderMap.size > 0) {
+      //   const hasTargets = this.glossaryProcessor.arePlaceholderTargetsPresent(
+      //     translatedText,
+      //     placeholderMap
+      //   );
+      //   if (!hasTargets) {
+      //     console.warn('⚠️ Glossary targets missing after processing. Reverting to glossary-safe translation.');
+      //     translatedText = glossaryBaselineText;
+      //   }
+      // }
 
       // Update stats
       const endTime = Date.now();
