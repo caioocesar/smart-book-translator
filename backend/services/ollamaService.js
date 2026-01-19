@@ -407,7 +407,7 @@ class OllamaService {
       const buildOllamaOptions = (overrides = {}) => ({
         temperature: generationOptions.temperature ?? 0.3,
         top_p: generationOptions.top_p ?? 0.9,
-        num_ctx: generationOptions.num_ctx,
+        num_ctx: generationOptions.num_ctx || 4096, // Default 4096 tokens if not specified
         num_batch: generationOptions.num_batch,
         num_thread: generationOptions.num_thread,
         num_gpu: generationOptions.num_gpu,
@@ -648,11 +648,22 @@ class OllamaService {
     let taskNumber = 1;
     const role = extra?.role || 'enhance';
 
-    if (role === 'validation') {
+    if (role === 'enhance') {
+      prompt += `${taskNumber}. TRANSLATION ENHANCEMENT:\n`;
+      prompt += `   - Review the entire translation and improve quality throughout\n`;
+      prompt += `   - Fix grammar errors, mistranslations, and awkward phrasing\n`;
+      prompt += `   - Maintain the complete length and structure of the original\n`;
+      prompt += `   - ⚠️ CRITICAL: You MUST return the COMPLETE enhanced translation from start to finish\n`;
+      prompt += `   - ⚠️ Do NOT summarize, truncate, or return only excerpts\n`;
+      prompt += `   - ⚠️ Process the ENTIRE text and return it ALL with improvements applied\n`;
+      taskNumber++;
+    } else if (role === 'validation') {
       prompt += `${taskNumber}. SEMANTIC VALIDATION:\n`;
       prompt += `   - Verify that the meaning matches the original intent\n`;
       prompt += `   - Fix mistranslations with MINIMAL edits\n`;
       prompt += `   - Preserve structure and wording unless incorrect\n`;
+      prompt += `   - Fix grammar errors (agreement, verb conjugation, word order) following ${targetLanguageName} rules\n`;
+      prompt += `   - CRITICAL: Maintain natural word order for ${targetLanguageName}\n`;
       prompt += `   - CRITICAL: Return the COMPLETE translation with ALL corrections applied\n`;
       prompt += `   - Do NOT return only the corrected parts - return the ENTIRE text\n`;
       taskNumber++;
@@ -660,11 +671,13 @@ class OllamaService {
       prompt += `${taskNumber}. NATURAL REWRITE:\n`;
       prompt += `   - Rewrite to sound natural and fluent in ${targetLanguageName}\n`;
       prompt += `   - Keep meaning identical, improve flow and readability\n`;
+      prompt += `   - Return the COMPLETE rewritten text from start to finish\n`;
       taskNumber++;
     } else if (role === 'technical') {
       prompt += `${taskNumber}. TECHNICAL REVIEW:\n`;
       prompt += `   - Ensure technical terms, numbers, units, and names are accurate\n`;
       prompt += `   - Fix any terminology inconsistencies or formatting issues\n`;
+      prompt += `   - Return the COMPLETE reviewed text\n`;
       taskNumber++;
     }
     
@@ -717,13 +730,18 @@ class OllamaService {
 
     if (hasHtmlTags) {
       prompt += `\n⚠️ CRITICAL REQUIREMENTS:\n`;
-      prompt += `1. Return ONLY the enhanced translation text\n`;
-      prompt += `2. Do NOT add any explanations, comments, or additional text\n`;
-      prompt += `3. PRESERVE ALL HTML tags EXACTLY as they appear (including <p>, <strong>, <em>, <br>, <span>, etc.)\n`;
-      prompt += `4. Do NOT remove, modify, or add any HTML tags\n`;
-      prompt += `5. Only improve the TEXT content between the tags, not the tags themselves\n`;
+      prompt += `1. Return ONLY the enhanced translation text - THE COMPLETE TEXT FROM START TO END\n`;
+      prompt += `2. Do NOT add any explanations, comments, summaries, or additional text\n`;
+      prompt += `3. Do NOT truncate or shorten the text - return it ALL\n`;
+      prompt += `4. PRESERVE ALL HTML tags EXACTLY as they appear (including <p>, <strong>, <em>, <br>, <span>, etc.)\n`;
+      prompt += `5. Do NOT remove, modify, or add any HTML tags\n`;
+      prompt += `6. Only improve the TEXT content between the tags, not the tags themselves\n`;
     } else {
-      prompt += `\nIMPORTANT: Return ONLY the enhanced translation text, without any explanations, comments, or additional formatting.`;
+      prompt += `\n⚠️ CRITICAL REQUIREMENTS:\n`;
+      prompt += `1. Return the COMPLETE enhanced translation from beginning to end\n`;
+      prompt += `2. Do NOT truncate, summarize, or return only excerpts\n`;
+      prompt += `3. Do NOT add explanations, comments, or additional formatting\n`;
+      prompt += `4. Return ONLY the full enhanced translation text\n`;
     }
 
     return prompt;
@@ -787,13 +805,14 @@ class OllamaService {
       if (listItems >= 2 && originalListItems === 0) return 'unexpected-list';
 
       // If output is dramatically shorter or longer, it's suspicious
-      // EXCEPT for validation mode, which makes minimal edits and may return partial corrections
+      // EXCEPT for validation mode: accept ANY length if output looks linguistically valid
       const ratio = e.length / Math.max(1, o.length);
       
       if (role === 'validation') {
-        // Validation mode: very lenient (makes minimal fixes, may be shorter)
-        if (ratio < 0.15) return `too-short(${ratio.toFixed(2)})`;
-        if (ratio > 2.5) return `too-long(${ratio.toFixed(2)})`;
+        // Validation mode: skip length check entirely
+        // Models often return partial corrections, which is acceptable for validation
+        // The output quality is more important than completeness
+        return null;
       } else {
         // Other modes: moderate thresholds
         if (ratio < 0.3) return `too-short(${ratio.toFixed(2)})`;

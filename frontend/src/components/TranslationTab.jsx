@@ -30,9 +30,15 @@ function TranslationTab({ settings }) {
   const [documentInfo, setDocumentInfo] = useState(null);
   const [recommendations, setRecommendations] = useState(null);
   const [analyzingDocument, setAnalyzingDocument] = useState(false);
-  // Provider-aware default chunk size: 6000 for local, 3000 for cloud APIs
-  const getDefaultChunkSize = (provider) => {
-    return provider === 'local' ? 6000 : 3000;
+  // Provider and LLM-aware default chunk size
+  // LLM-enhanced: 3500 for better model handling
+  // Local without LLM: 6000 for efficiency
+  // Cloud APIs: 3000 for cost management
+  const getDefaultChunkSize = (provider, llmEnabled = false) => {
+    if (provider === 'local') {
+      return llmEnabled ? 3500 : 6000;
+    }
+    return 3000;
   };
   const [chunkSize, setChunkSize] = useState(settings.chunkSize || getDefaultChunkSize('local'));
   const [openaiModel, setOpenaiModel] = useState(settings.openai_model || 'gpt-3.5-turbo');
@@ -40,7 +46,6 @@ function TranslationTab({ settings }) {
   const [availableGlossaries, setAvailableGlossaries] = useState([]);
   const [selectedGlossaryIds, setSelectedGlossaryIds] = useState([]);
   const [useAllGlossaries, setUseAllGlossaries] = useState(true);
-  
   // LLM Layer options (Ollama)
   const [useLLM, setUseLLM] = useState(false);
   const [llmFormality, setLlmFormality] = useState('neutral'); // 'informal', 'neutral', 'formal'
@@ -114,14 +119,16 @@ function TranslationTab({ settings }) {
     }
   };
 
-  // Update chunk size when provider changes (unless user has manually set it)
+  // Update chunk size when provider or LLM changes (unless user has manually set it)
   useEffect(() => {
     // Only auto-update if chunk size is at a default value
-    const isDefaultChunkSize = chunkSize === 3000 || chunkSize === 6000;
+    const isDefaultChunkSize = chunkSize === 3000 || chunkSize === 3500 || chunkSize === 6000;
     if (isDefaultChunkSize) {
-      setChunkSize(getDefaultChunkSize(apiProvider));
+      const hasLLMStages = llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled;
+      const isLLMEnabled = useLLM || hasLLMStages;
+      setChunkSize(getDefaultChunkSize(apiProvider, isLLMEnabled));
     }
-  }, [apiProvider]);
+  }, [apiProvider, useLLM, llmPipeline?.validation?.enabled, llmPipeline?.rewrite?.enabled, llmPipeline?.technical?.enabled]);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -868,8 +875,10 @@ function TranslationTab({ settings }) {
             <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
               {documentInfo && recommendations && recommendations[0] ? (
                 <>Recommended: {recommendations[0].recommendedChunkSize.toLocaleString()} chars (from {recommendations[0].model})</>
+              ) : apiProvider === 'local' && (useLLM || llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled) ? (
+                <>Default: 3500 chars (local with LLM). Smaller chunks help LLM models process text more completely without truncation.</>
               ) : apiProvider === 'local' ? (
-                <>Default: 6000 chars (local model). Local translation has no API costs, so larger chunks are more efficient.</>
+                <>Default: 6000 chars (local without LLM). Larger chunks are more efficient when using only LibreTranslate.</>
               ) : (
                 <>Default: 3000 chars. Larger chunks = fewer API calls but may hit limits.</>
               )}

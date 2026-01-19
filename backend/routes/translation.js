@@ -69,7 +69,8 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       apiProvider,
       outputFormat,
       apiKey,
-      chunkSize
+      chunkSize,
+      apiOptions
     } = req.body;
 
     if (!sourceLanguage || !targetLanguage || !apiProvider) {
@@ -110,26 +111,45 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       throw new Error('Document parsed successfully but contains no text. The file might be empty or corrupted.');
     }
 
-    // Use provided chunk size or default based on provider
-    // Local models can handle larger chunks (no API cost), cloud APIs use smaller chunks
+    // Use provided chunk size or default based on provider and LLM usage
+    // LLM-enhanced: smaller chunks (3500) to prevent truncation with small models
+    // Local without LLM: larger chunks (6000) for efficiency
+    // Cloud APIs: smaller chunks (3000) to manage costs
     let maxChunkSize;
     const isLocalProvider = apiProvider && apiProvider.toLowerCase() === 'local';
+    const useLLM = apiOptions?.useLLM || false;
+    const llmPipeline = apiOptions?.llmPipeline || {};
+    const hasLLMStages = llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled;
+    const isLLMEnabled = useLLM || hasLLMStages;
     
     const MIN_CHUNK_SIZE = 500;
     const MAX_CHUNK_SIZE = 10000;
     if (chunkSize) {
       const parsedSize = parseInt(chunkSize, 10);
       if (!Number.isFinite(parsedSize)) {
-        maxChunkSize = isLocalProvider ? 6000 : 3000;
+        // Smart defaults based on LLM usage
+        if (isLocalProvider && isLLMEnabled) {
+          maxChunkSize = 3500; // Smaller chunks for LLM processing
+        } else if (isLocalProvider) {
+          maxChunkSize = 6000; // Larger chunks for LibreTranslate only
+        } else {
+          maxChunkSize = 3000; // Cloud APIs
+        }
       } else {
         maxChunkSize = Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, parsedSize));
       }
     } else {
-      // Provider-aware defaults
-      maxChunkSize = isLocalProvider ? 6000 : 3000;
+      // Provider-aware defaults with LLM consideration
+      if (isLocalProvider && isLLMEnabled) {
+        maxChunkSize = 3500; // Smaller chunks for LLM processing
+      } else if (isLocalProvider) {
+        maxChunkSize = 6000; // Larger chunks for LibreTranslate only
+      } else {
+        maxChunkSize = 3000; // Cloud APIs
+      }
     }
     
-    Logger.logError('upload', `Using chunk size: ${maxChunkSize} chars (provider: ${apiProvider}, local: ${isLocalProvider})`, null, {});
+    Logger.logError('upload', `Using chunk size: ${maxChunkSize} chars (provider: ${apiProvider}, local: ${isLocalProvider}, LLM: ${isLLMEnabled})`, null, {});
     
     const chunks = DocumentParser.splitIntoChunks(parsed.text, maxChunkSize);
     let htmlChunks = [];
