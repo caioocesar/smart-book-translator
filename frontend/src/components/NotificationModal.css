@@ -2,15 +2,13 @@
 
 .notification-modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 10000;
+  padding: 8vh 1.5rem 2rem;
   animation: fadeIn 0.2s ease;
 }
 

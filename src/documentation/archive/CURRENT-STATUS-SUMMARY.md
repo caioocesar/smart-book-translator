@@ -98,7 +98,7 @@
 ### Documentation
 - `QUICK-FIX-ISSUES.md` - Current issues and solutions
 - `BUILD-INSTALLER.md` - How to build installers
-- `INSTALLATION-FIXED.md` - Installation guide
+- `src/documentation/archive/INSTALLATION-FIXED.md` - Installation guide
 - `COMPLETE-SETUP-GUIDE.md` - Comprehensive guide
 - `LLM_LAYER_GUIDE.md` - LLM enhancement guide
 - `OLLAMA_SETUP.md` - Ollama setup guide

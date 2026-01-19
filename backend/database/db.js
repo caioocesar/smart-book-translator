@@ -7,12 +7,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Create data directory if it doesn't exist
-const dataDir = path.join(__dirname, '..', 'data');
+const defaultDataDir = path.join(__dirname, '..', 'data');
+const externalDataDir = process.env.SBT_DATA_DIR || process.env.ELECTRON_USER_DATA || null;
+const dataDir = externalDataDir
+  ? path.join(externalDataDir, 'smart-book-translator')
+  : defaultDataDir;
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, 'translator.db');
+const dbPath = process.env.SBT_DB_PATH
+  ? path.resolve(process.env.SBT_DB_PATH)
+  : path.join(dataDir, 'translator.db');
+
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 
 // Initialize SQL.js
 const SQL = await initSqlJs();
@@ -20,11 +31,18 @@ const SQL = await initSqlJs();
 // Load or create database
 let sqlDb;
 if (fs.existsSync(dbPath)) {
-  const buffer = fs.readFileSync(dbPath);
-  sqlDb = new SQL.Database(buffer);
+  try {
+    const buffer = fs.readFileSync(dbPath);
+    sqlDb = new SQL.Database(buffer);
+  } catch (error) {
+    console.error('Failed to load database file, creating a new database:', error);
+    sqlDb = new SQL.Database();
+  }
 } else {
   sqlDb = new SQL.Database();
 }
+
+console.log(`Database path: ${dbPath}`);
 
 // Save database to disk
 function saveDatabase() {
@@ -66,10 +84,20 @@ class DatabaseWrapper {
           stmt.bind(params);
           stmt.step(); // Execute the statement
           const changes = self.db.getRowsModified();
+          let lastInsertRowid = null;
+          try {
+            const result = self.db.exec('SELECT last_insert_rowid() as id');
+            const value = result?.[0]?.values?.[0]?.[0];
+            if (value !== undefined) {
+              lastInsertRowid = value;
+            }
+          } catch {
+            lastInsertRowid = null;
+          }
           if (self._txDepth === 0) {
             saveDatabase();
           }
-          return { changes };
+          return { changes, lastInsertRowid };
         } finally {
           stmt.free();
         }
@@ -209,6 +237,22 @@ function initDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migrations for older translation_jobs schema
+  const jobColumns = [
+    { name: 'output_format', type: 'TEXT', defaultValue: "'txt'" },
+    { name: 'total_chunks', type: 'INTEGER', defaultValue: '0' },
+    { name: 'completed_chunks', type: 'INTEGER', defaultValue: '0' },
+    { name: 'failed_chunks', type: 'INTEGER', defaultValue: '0' },
+    { name: 'error_message', type: 'TEXT', defaultValue: 'NULL' }
+  ];
+  for (const column of jobColumns) {
+    try {
+      db.exec(`ALTER TABLE translation_jobs ADD COLUMN ${column.name} ${column.type} DEFAULT ${column.defaultValue}`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  }
 
   // Translation chunks table (for caching and retry)
   db.exec(`

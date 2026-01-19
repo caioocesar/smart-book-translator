@@ -70,8 +70,12 @@ class LocalTranslationService {
    */
   async translate(text, sourceLang, targetLang, glossaryTerms = [], options = {}) {
     const startTime = Date.now();
+    const shouldAbort = typeof options.abortCheck === 'function' ? options.abortCheck : null;
 
     try {
+      if (shouldAbort && shouldAbort()) {
+        return { aborted: true };
+      }
       // Check if LibreTranslate is running
       const available = await this.isAvailable();
       if (!available) {
@@ -190,14 +194,34 @@ class LocalTranslationService {
         );
         translatedText = postProcessResult.finalText;
         glossaryStats = postProcessResult.stats;
+
+        // Final cleanup: if any GTERM token survived, replace with original source term
+        translatedText = this.glossaryProcessor.applyResidualTokenCleanup(
+          translatedText,
+          placeholderMap
+        );
+      }
+      
+      // Enforce glossary terms as a final pass (best-effort), even if no placeholders matched
+      if (Array.isArray(glossaryTerms) && glossaryTerms.length > 0) {
+        translatedText = this.glossaryProcessor.enforceGlossaryTerms(
+          translatedText,
+          glossaryTerms
+        );
       }
 
       // Step 5.5: Optional text analysis (1.5 layer)
       let analysisReport = null;
       const useLLM = options.useLLM || Settings.get('ollamaEnabled') || false;
+      const skipLLMIfNoIssues = options.skipLLMIfNoIssues ?? Settings.get('ollamaSkipIfNoIssues') ?? false;
+      const llmGenerationOptions = options.llmGenerationOptions || Settings.get('ollamaGenerationOptions') || {};
+      const llmPipeline = options.llmPipeline || Settings.get('ollamaPipeline') || {};
       
       if (useLLM) {
         try {
+          if (shouldAbort && shouldAbort()) {
+            return { aborted: true };
+          }
           console.log('📊 Analyzing translation quality...');
           const analysisStartTime = Date.now();
           
@@ -226,37 +250,106 @@ class LocalTranslationService {
       
       if (useLLM) {
         try {
+          if (shouldAbort && shouldAbort()) {
+            return { aborted: true };
+          }
           const ollamaRunning = await ollamaService.isRunning();
           
           if (ollamaRunning) {
-            console.log('🤖 Applying LLM enhancement...');
-            const llmStartTime = Date.now();
-            
-            const llmResult = await ollamaService.processTranslation(translatedText, {
-              sourceLang,
-              targetLang,
-              formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
-              improveStructure: options.improveStructure !== false && (Settings.get('ollamaTextStructure') !== false),
-              verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
-              glossaryTerms: glossaryTerms,
-              model: options.ollamaModel || Settings.get('ollamaModel') || null,
-              analysisReport: analysisReport // Pass analysis to LLM
-            });
-            
-            if (llmResult.success) {
-              translatedText = llmResult.enhancedText;
-              llmStats = {
-                duration: Date.now() - llmStartTime,
-                model: llmResult.model,
-                changes: llmResult.changes,
-                issuesAddressed: analysisReport?.issues?.length || 0
-              };
-              console.log(`✓ LLM enhancement completed in ${llmStats.duration}ms`);
-              if (analysisReport?.hasIssues) {
-                console.log(`  → Addressed ${analysisReport.issues.length} identified issue(s)`);
-              }
+            if (skipLLMIfNoIssues && analysisReport && analysisReport.hasIssues === false) {
+              llmStats = { skipped: true, reason: 'no-issues' };
+              console.log('🤖 Skipping LLM enhancement (no issues detected)');
             } else {
-              console.warn('⚠️ LLM enhancement failed:', llmResult.error);
+              console.log('🤖 Applying LLM enhancement...');
+              const llmStartTime = Date.now();
+              
+              const llmResult = await ollamaService.processTranslation(translatedText, {
+                sourceLang,
+                targetLang,
+                formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
+                improveStructure: options.improveStructure !== false && (Settings.get('ollamaTextStructure') !== false),
+                verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
+                glossaryTerms: glossaryTerms,
+                model: options.ollamaModel || Settings.get('ollamaModel') || null,
+                analysisReport: analysisReport, // Pass analysis to LLM
+                generationOptions: llmGenerationOptions
+              });
+              
+              if (llmResult.success) {
+                translatedText = llmResult.enhancedText;
+                llmStats = {
+                  duration: Date.now() - llmStartTime,
+                  model: llmResult.model,
+                  changes: llmResult.changes,
+                  issuesAddressed: analysisReport?.issues?.length || 0,
+                  stages: []
+                };
+                console.log(`✓ LLM enhancement completed in ${llmStats.duration}ms`);
+                if (analysisReport?.hasIssues) {
+                  console.log(`  → Addressed ${analysisReport.issues.length} identified issue(s)`);
+                }
+                
+                const pipelineStages = [
+                  {
+                    key: 'validation',
+                    role: 'validation',
+                    enabled: !!llmPipeline?.validation?.enabled,
+                    model: llmPipeline?.validation?.model || options.ollamaValidationModel || Settings.get('ollamaValidationModel') || null,
+                    improveStructure: false
+                  },
+                  {
+                    key: 'rewrite',
+                    role: 'rewrite',
+                    enabled: !!llmPipeline?.rewrite?.enabled,
+                    model: llmPipeline?.rewrite?.model || options.ollamaRewriteModel || Settings.get('ollamaRewriteModel') || null,
+                    improveStructure: true
+                  },
+                  {
+                    key: 'technical',
+                    role: 'technical',
+                    enabled: !!llmPipeline?.technical?.enabled,
+                    model: llmPipeline?.technical?.model || options.ollamaTechnicalModel || Settings.get('ollamaTechnicalModel') || null,
+                    improveStructure: false
+                  }
+                ];
+
+                for (const stage of pipelineStages) {
+                  if (!stage.enabled) continue;
+                  const stageStart = Date.now();
+                  const stageResult = await ollamaService.processTranslation(translatedText, {
+                    sourceLang,
+                    targetLang,
+                    formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
+                    improveStructure: stage.improveStructure,
+                    verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
+                    glossaryTerms: glossaryTerms,
+                    model: stage.model,
+                    analysisReport: analysisReport,
+                    role: stage.role,
+                    generationOptions: llmGenerationOptions
+                  });
+                  const stageDuration = Date.now() - stageStart;
+                  if (stageResult.success) {
+                    translatedText = stageResult.enhancedText;
+                    llmStats.stages.push({
+                      stage: stage.key,
+                      model: stageResult.model,
+                      duration: stageDuration,
+                      changes: stageResult.changes
+                    });
+                  } else {
+                    llmStats.stages.push({
+                      stage: stage.key,
+                      model: stage.model,
+                      duration: stageDuration,
+                      error: stageResult.error || 'failed'
+                    });
+                    console.warn(`⚠️ LLM pipeline stage failed (${stage.key}):`, stageResult.error);
+                  }
+                }
+              } else {
+                console.warn('⚠️ LLM enhancement failed:', llmResult.error);
+              }
             }
           } else {
             console.warn('⚠️ LLM enhancement requested but Ollama is not running');
@@ -266,6 +359,20 @@ class LocalTranslationService {
           Logger.logError('localTranslation', 'LLM enhancement failed', llmError, {});
           console.warn('⚠️ LLM enhancement error:', llmError.message);
         }
+      }
+
+      // Safety cleanup after LLM (LLM may reintroduce or alter glossary tokens)
+      if (placeholderMap.size > 0) {
+        translatedText = this.glossaryProcessor.applyResidualTokenCleanup(
+          translatedText,
+          placeholderMap
+        );
+      }
+      if (Array.isArray(glossaryTerms) && glossaryTerms.length > 0) {
+        translatedText = this.glossaryProcessor.enforceGlossaryTerms(
+          translatedText,
+          glossaryTerms
+        );
       }
 
       // Update stats

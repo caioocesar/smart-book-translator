@@ -235,6 +235,49 @@ class OllamaService {
   }
 
   /**
+   * Delete/uninstall a model
+   * @param {string} modelName
+   * @returns {Promise<Object>}
+   */
+  async deleteModel(modelName) {
+    try {
+      if (!modelName) {
+        return { success: false, message: 'Model name is required' };
+      }
+      try {
+        const response = await axios.post(
+          `${this.baseUrl}/api/delete`,
+          { name: modelName },
+          { timeout: 30000 }
+        );
+        return {
+          success: true,
+          message: response.data?.status || `Model ${modelName} deleted`
+        };
+      } catch (postError) {
+        const status = postError?.response?.status;
+        if (status === 405) {
+          const response = await axios.delete(
+            `${this.baseUrl}/api/delete`,
+            { data: { name: modelName }, timeout: 30000 }
+          );
+          return {
+            success: true,
+            message: response.data?.status || `Model ${modelName} deleted`
+          };
+        }
+        throw postError;
+      }
+    } catch (error) {
+      Logger.logError('ollama', 'Failed to delete model', error, { modelName });
+      return {
+        success: false,
+        message: error?.response?.data?.error || error.message
+      };
+    }
+  }
+
+  /**
    * Check if a specific model is installed
    * @param {string} modelName - Model name (e.g., 'llama3.2:3b')
    * @returns {Promise<boolean>}
@@ -329,7 +372,9 @@ class OllamaService {
       verifyGlossary = false,
       glossaryTerms = [],
       model = null,
-      analysisReport = null // NEW: Text analysis report from textAnalyzer
+      analysisReport = null, // NEW: Text analysis report from textAnalyzer
+      role = 'enhance',
+      generationOptions = {}
     } = options;
 
     try {
@@ -356,17 +401,26 @@ class OllamaService {
         improveStructure,
         verifyGlossary,
         glossaryTerms,
-        { outputJson: true, analysisReport }
+        { outputJson: true, analysisReport, role }
       );
 
-      const callOllama = async (promptText, generationOptions = {}, useStructuredOutput = true) => {
+      const buildOllamaOptions = (overrides = {}) => ({
+        temperature: generationOptions.temperature ?? 0.3,
+        top_p: generationOptions.top_p ?? 0.9,
+        num_ctx: generationOptions.num_ctx,
+        num_batch: generationOptions.num_batch,
+        num_thread: generationOptions.num_thread,
+        num_gpu: generationOptions.num_gpu,
+        ...overrides
+      });
+
+      const callOllama = async (promptText, overrideOptions = {}, useStructuredOutput = true) => {
         const body = {
           model: modelToUse,
           prompt: promptText,
           stream: false,
           options: {
-            temperature: generationOptions.temperature ?? 0.3,
-            top_p: generationOptions.top_p ?? 0.9
+            ...buildOllamaOptions(overrideOptions)
           }
         };
 
@@ -415,7 +469,7 @@ class OllamaService {
       };
 
       // Attempt 1 (normal)
-      let enhancedText = await callOllama(prompt, { temperature: 0.3, top_p: 0.9 }, true);
+      let enhancedText = await callOllama(prompt, {}, true);
       enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
       enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang); // run twice to catch multi-line prefixes
 
@@ -432,7 +486,7 @@ class OllamaService {
           improveStructure,
           verifyGlossary,
           glossaryTerms,
-          { strictLanguage: true, outputJson: true, analysisReport }
+          { strictLanguage: true, outputJson: true, analysisReport, role }
         );
         enhancedText = await callOllama(strictPrompt, { temperature: 0.0, top_p: 0.1 }, true);
         enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
@@ -579,6 +633,25 @@ class OllamaService {
     prompt += `YOUR REVIEW TASKS:\n`;
 
     let taskNumber = 1;
+    const role = extra?.role || 'enhance';
+
+    if (role === 'validation') {
+      prompt += `${taskNumber}. SEMANTIC VALIDATION:\n`;
+      prompt += `   - Verify that the meaning matches the original intent\n`;
+      prompt += `   - Fix mistranslations with MINIMAL edits\n`;
+      prompt += `   - Preserve structure and wording unless incorrect\n`;
+      taskNumber++;
+    } else if (role === 'rewrite') {
+      prompt += `${taskNumber}. NATURAL REWRITE:\n`;
+      prompt += `   - Rewrite to sound natural and fluent in ${targetLanguageName}\n`;
+      prompt += `   - Keep meaning identical, improve flow and readability\n`;
+      taskNumber++;
+    } else if (role === 'technical') {
+      prompt += `${taskNumber}. TECHNICAL REVIEW:\n`;
+      prompt += `   - Ensure technical terms, numbers, units, and names are accurate\n`;
+      prompt += `   - Fix any terminology inconsistencies or formatting issues\n`;
+      taskNumber++;
+    }
     
     // Formality adjustment
     if (formality === 'formal') {

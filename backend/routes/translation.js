@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import db from '../database/db.js';
 import DocumentParser from '../services/documentParser.js';
 import TranslationService from '../services/translationService.js';
@@ -32,7 +32,10 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${file.originalname}`;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const base = path.basename(file.originalname, ext);
+    const safeBase = base.replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 80) || 'document';
+    const uniqueName = `${Date.now()}-${safeBase}${ext}`;
     cb(null, uniqueName);
   }
 });
@@ -112,8 +115,15 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     let maxChunkSize;
     const isLocalProvider = apiProvider && apiProvider.toLowerCase() === 'local';
     
+    const MIN_CHUNK_SIZE = 500;
+    const MAX_CHUNK_SIZE = 10000;
     if (chunkSize) {
-      maxChunkSize = parseInt(chunkSize);
+      const parsedSize = parseInt(chunkSize, 10);
+      if (!Number.isFinite(parsedSize)) {
+        maxChunkSize = isLocalProvider ? 6000 : 3000;
+      } else {
+        maxChunkSize = Math.max(MIN_CHUNK_SIZE, Math.min(MAX_CHUNK_SIZE, parsedSize));
+      }
     } else {
       // Provider-aware defaults
       maxChunkSize = isLocalProvider ? 6000 : 3000;
@@ -478,7 +488,10 @@ router.delete('/jobs/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    // Stop any running translation (chunks will be cleaned up by CASCADE)
+    // Stop any running translation
+    TranslationJob.updateStatus(jobId, 'cancelled');
+
+    // Clean up chunks and job data
     // Delete chunks explicitly to ensure cleanup
     const deleteChunksStmt = db.prepare('DELETE FROM translation_chunks WHERE job_id = ?');
     deleteChunksStmt.run(jobId);
@@ -622,12 +635,20 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
   }
   
   for (let i = 0; i < chunks.length; i++) {
-    // Check if job is paused before processing each chunk
+    // Check if job is paused/cancelled/deleted before processing each chunk
     const currentJob = TranslationJob.get(jobId);
-    if (currentJob && currentJob.status === 'paused') {
+    if (!currentJob) {
+      console.warn(`⛔ Job ${jobId} not found (deleted). Stopping translation loop.`);
+      break;
+    }
+    if (currentJob.status === 'paused') {
       console.log(`⏸️  Translation job ${jobId} is paused. Stopping translation loop.`);
       TranslationJob.updateStatus(jobId, 'paused');
       return; // Exit the translation loop
+    }
+    if (currentJob.status === 'cancelled') {
+      console.log(`🛑 Translation job ${jobId} is cancelled. Stopping translation loop.`);
+      return;
     }
     
     const chunk = chunks[i];
@@ -636,10 +657,18 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
     let attempts = 0;
     
     while (!chunkCompleted && attempts < maxRetries) {
-      // Check again if paused during retry loop
+      // Check again if paused/cancelled during retry loop
       const jobCheck = TranslationJob.get(jobId);
-      if (jobCheck && jobCheck.status === 'paused') {
+      if (!jobCheck) {
+        console.warn(`⛔ Job ${jobId} not found (deleted). Stopping retries.`);
+        return;
+      }
+      if (jobCheck.status === 'paused') {
         console.log(`⏸️  Translation job ${jobId} paused during chunk ${chunk.chunk_index}. Stopping.`);
+        return;
+      }
+      if (jobCheck.status === 'cancelled') {
+        console.log(`🛑 Translation job ${jobId} cancelled during chunk ${chunk.chunk_index}. Stopping.`);
         return;
       }
       try {
@@ -720,13 +749,24 @@ export async function translateJob(jobId, apiKey, apiOptions = {}, apiProvider =
           const useHtml = !!apiOptions?.htmlMode && !!chunk.source_html;
           const inputForLocal = useHtml ? chunk.source_html : chunk.source_text;
 
+          const abortCheck = () => {
+            const jobCheck = TranslationJob.get(jobId);
+            if (!jobCheck) return true;
+            return jobCheck.status === 'paused' || jobCheck.status === 'cancelled';
+          };
+
           result = await localTranslationService.translate(
             inputForLocal,
             job.source_language,
             job.target_language,
             localGlossaryTerms,
-            apiOptions // Pass options including htmlMode, useLLM, formality, etc.
+            { ...apiOptions, abortCheck } // Pass options including htmlMode, useLLM, formality, etc.
           );
+          if (result?.aborted) {
+            TranslationChunk.updateProcessingLayer(chunk.id, null);
+            console.log(`⏸️  Translation aborted for chunk ${chunk.chunk_index} (job paused/cancelled)`);
+            return;
+          }
           const translated = result?.translatedText || inputForLocal;
           if (useHtml) {
             translatedHtml = translated;
@@ -1282,26 +1322,39 @@ router.post('/open-directory', async (req, res) => {
       return res.status(404).json({ error: 'Directory not found' });
     }
 
-    // Open directory based on platform
     const platform = process.platform;
-    let command;
-    
+    const openWithFallback = (commands, args, onSuccess, onError, index = 0) => {
+      if (index >= commands.length) {
+        onError(new Error('No compatible file manager found'));
+        return;
+      }
+      execFile(commands[index], args, (error) => {
+        if (!error) {
+          onSuccess();
+          return;
+        }
+        openWithFallback(commands, args, onSuccess, onError, index + 1);
+      });
+    };
+
+    let commands = [];
     if (platform === 'win32') {
-      command = `explorer "${normalizedPath}"`;
+      commands = ['explorer'];
     } else if (platform === 'darwin') {
-      command = `open "${normalizedPath}"`;
+      commands = ['open'];
     } else {
-      // Linux - try common file managers
-      command = `xdg-open "${normalizedPath}" || nautilus "${normalizedPath}" || dolphin "${normalizedPath}" || thunar "${normalizedPath}" || nemo "${normalizedPath}"`;
+      commands = ['xdg-open', 'nautilus', 'dolphin', 'thunar', 'nemo'];
     }
 
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
+    openWithFallback(
+      commands,
+      [normalizedPath],
+      () => res.json({ success: true, message: 'Directory opened' }),
+      (error) => {
         console.error('Error opening directory:', error);
-        return res.status(500).json({ error: 'Failed to open directory', details: error.message });
+        res.status(500).json({ error: 'Failed to open directory', details: error.message });
       }
-      res.json({ success: true, message: 'Directory opened' });
-    });
+    );
   } catch (error) {
     console.error('Error opening directory:', error);
     res.status(500).json({ error: error.message });

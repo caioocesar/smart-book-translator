@@ -46,6 +46,20 @@ function TranslationTab({ settings }) {
   const [llmFormality, setLlmFormality] = useState('neutral'); // 'informal', 'neutral', 'formal'
   const [llmImproveStructure, setLlmImproveStructure] = useState(true);
   const [llmVerifyGlossary, setLlmVerifyGlossary] = useState(false);
+  const [llmSkipIfNoIssues, setLlmSkipIfNoIssues] = useState(false);
+  const [llmPipeline, setLlmPipeline] = useState({
+    validation: { enabled: false, model: '' },
+    rewrite: { enabled: false, model: '' },
+    technical: { enabled: false, model: '' }
+  });
+  const [llmGenerationOptions, setLlmGenerationOptions] = useState({
+    num_ctx: '',
+    num_batch: '',
+    num_thread: '',
+    num_gpu: ''
+  });
+  const [ollamaSystemInfo, setOllamaSystemInfo] = useState(null);
+  const [ollamaModels, setOllamaModels] = useState([]);
   
   // HTML formatting option
   const [htmlMode, setHtmlMode] = useState(false);
@@ -60,6 +74,45 @@ function TranslationTab({ settings }) {
   });
 
   const isLocalProvider = apiProvider === 'local';
+
+  const updatePipelineStage = (stage, updates) => {
+    setLlmPipeline(prev => ({
+      ...prev,
+      [stage]: {
+        ...prev[stage],
+        ...updates
+      }
+    }));
+  };
+
+  const getRecommendedGenOptions = () => {
+    const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
+    const hasGpu = !!ollamaSystemInfo?.gpu?.name;
+    return {
+      num_ctx: 4096,
+      num_batch: 128,
+      num_thread: Math.min(8, Math.max(2, Math.floor(cores / 2))),
+      num_gpu: hasGpu ? 35 : 0
+    };
+  };
+
+  const loadOllamaSystemInfo = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/ollama/system-info`);
+      setOllamaSystemInfo(response.data);
+    } catch (error) {
+      setOllamaSystemInfo(null);
+    }
+  };
+
+  const loadOllamaModels = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/ollama/models`);
+      setOllamaModels(response.data?.models || []);
+    } catch (error) {
+      setOllamaModels([]);
+    }
+  };
 
   // Update chunk size when provider changes (unless user has manually set it)
   useEffect(() => {
@@ -95,6 +148,13 @@ function TranslationTab({ settings }) {
     loadJobs();
     loadGlossaries();
   }, [apiProvider, settings, sourceLanguage, targetLanguage]);
+
+  useEffect(() => {
+    if (apiProvider === 'local' && useLLM) {
+      loadOllamaSystemInfo();
+      loadOllamaModels();
+    }
+  }, [apiProvider, useLLM]);
   
   // Also update API key when settings change (e.g., after saving in Settings tab)
   useEffect(() => {
@@ -424,6 +484,35 @@ function TranslationTab({ settings }) {
         apiOptions.formality = llmFormality;
         apiOptions.improveStructure = llmImproveStructure;
         apiOptions.verifyGlossary = llmVerifyGlossary;
+        apiOptions.skipLLMIfNoIssues = llmSkipIfNoIssues;
+        const normalizedPipeline = {};
+        Object.entries(llmPipeline).forEach(([key, value]) => {
+          if (value?.model?.startsWith(`__${key}_custom__`)) {
+            normalizedPipeline[key] = {
+              enabled: value.enabled,
+              model: value.custom || ''
+            };
+          } else {
+            normalizedPipeline[key] = {
+              enabled: value.enabled,
+              model: value.model || ''
+            };
+          }
+        });
+        apiOptions.llmPipeline = normalizedPipeline;
+
+        const generationOptions = {};
+        ['num_ctx', 'num_batch', 'num_thread', 'num_gpu'].forEach((key) => {
+          const value = Number(llmGenerationOptions[key]);
+          if (Number.isFinite(value) && value > 0) {
+            generationOptions[key] = value;
+          }
+        });
+        if (Object.keys(generationOptions).length === 0) {
+          apiOptions.llmGenerationOptions = getRecommendedGenOptions();
+        } else {
+          apiOptions.llmGenerationOptions = generationOptions;
+        }
       }
       
       await axios.post(`${API_URL}/api/translation/translate/${jobId}`, {
@@ -993,6 +1082,125 @@ function TranslationTab({ settings }) {
                         </p>
                       </div>
                     )}
+
+                    {/* Performance Guard */}
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={llmSkipIfNoIssues}
+                          onChange={(e) => setLlmSkipIfNoIssues(e.target.checked)}
+                        />
+                        <span style={{ fontWeight: 600 }}>⚡ Skip LLM when no issues are found</span>
+                      </label>
+                      <p style={{ fontSize: '0.8em', color: '#666', marginLeft: '28px', marginTop: '4px' }}>
+                        Uses the analysis layer to avoid extra processing when the translation already looks good.
+                      </p>
+                    </div>
+
+                    {/* Extra LLM Pipeline */}
+                    <div style={{ borderTop: '1px solid #eef0f5', paddingTop: '8px' }}>
+                      <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px' }}>
+                        🧠 Extra LLM Pipeline (optional)
+                      </label>
+                      <p style={{ fontSize: '0.8em', color: '#666', marginBottom: '8px' }}>
+                        Runs AFTER the main LLM enhancement. Each enabled pass can further change the text.
+                      </p>
+                      <p style={{ fontSize: '0.8em', color: '#666', marginBottom: '8px' }}>
+                        Recommended models are shown in the custom placeholder; choosing “Use main LLM model” reuses your primary model.
+                      </p>
+                      {[
+                        { key: 'validation', label: 'Validation', hint: 'Recommended: qwen2.5:7b', recommended: 'qwen2.5:7b' },
+                        { key: 'rewrite', label: 'Rewrite', hint: 'Recommended: llama3.1:8b', recommended: 'llama3.1:8b' },
+                        { key: 'technical', label: 'Technical check', hint: 'Recommended: mistral:7b', recommended: 'mistral:7b' }
+                      ].map(stage => (
+                        <div key={stage.key} style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                          <input
+                            type="checkbox"
+                            checked={llmPipeline[stage.key].enabled}
+                            onChange={(e) => updatePipelineStage(stage.key, { enabled: e.target.checked })}
+                          />
+                          <span style={{ minWidth: '190px', fontWeight: 600 }}>
+                            {stage.label}
+                            <span style={{ fontSize: '0.75em', color: '#666', marginLeft: '6px' }}>
+                              (recommended {stage.recommended})
+                            </span>
+                          </span>
+                          <select
+                            value={llmPipeline[stage.key].model}
+                            onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
+                            style={{ flex: 1, minWidth: '180px' }}
+                          >
+                            <option value="">Use main LLM model (default)</option>
+                            {ollamaModels.map(model => (
+                              <option key={model.name} value={model.name}>{model.name}</option>
+                            ))}
+                            <option value={`__${stage.key}_custom__`}>Custom...</option>
+                          </select>
+                          {llmPipeline[stage.key].model?.startsWith(`__${stage.key}_custom__`) && (
+                            <input
+                              type="text"
+                              value={llmPipeline[stage.key].custom || ''}
+                              onChange={(e) => updatePipelineStage(stage.key, { custom: e.target.value })}
+                              placeholder={stage.hint}
+                              style={{ flex: 1, minWidth: '180px' }}
+                            />
+                          )}
+                        </div>
+                      ))}
+                      <p style={{ fontSize: '0.75em', color: '#666', marginTop: '6px' }}>
+                        Each pass is optional. Leave the model empty to reuse the main LLM model. Validation aims for minimal changes, but it can still rewrite if the model decides to.
+                      </p>
+                    </div>
+
+                    {/* Generation Options */}
+                    <div style={{ borderTop: '1px solid #eef0f5', paddingTop: '8px' }}>
+                      <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px' }}>
+                        🧰 Generation Options (advanced)
+                      </label>
+                      <p style={{ fontSize: '0.8em', color: '#666', marginBottom: '8px' }}>
+                        Recommended defaults for your machine will be used if you leave fields empty.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-small"
+                        onClick={() => {
+                          const recommended = getRecommendedGenOptions();
+                          setLlmGenerationOptions({
+                            num_ctx: String(recommended.num_ctx),
+                            num_batch: String(recommended.num_batch),
+                            num_thread: String(recommended.num_thread),
+                            num_gpu: String(recommended.num_gpu)
+                          });
+                        }}
+                        style={{ marginBottom: '10px' }}
+                      >
+                        Apply recommended values
+                      </button>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+                        {[
+                          { key: 'num_ctx', label: 'Context' },
+                          { key: 'num_batch', label: 'Batch' },
+                          { key: 'num_thread', label: 'Threads' },
+                          { key: 'num_gpu', label: 'GPU layers' }
+                        ].map(option => (
+                          <label key={option.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.8em' }}>
+                            {option.label}
+                            <input
+                              type="number"
+                              min="0"
+                              value={llmGenerationOptions[option.key]}
+                              onChange={(e) => setLlmGenerationOptions(prev => ({ ...prev, [option.key]: e.target.value }))}
+                              placeholder={String(getRecommendedGenOptions()[option.key])}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: '0.75em', color: '#666', marginTop: '8px' }}>
+                        Tips: Context 2048–8192, Batch 32–256, Threads 2–8, GPU layers 0+
+                        {ollamaSystemInfo?.gpu?.name ? ' (recommended 35 with GPU)' : ' (set to 0 if no GPU)'}.
+                      </p>
+                    </div>
 
                     {/* Warning about processing time */}
                     <div style={{ 

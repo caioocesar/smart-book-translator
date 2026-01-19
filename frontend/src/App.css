@@ -351,6 +351,10 @@
 .upload-section, .glossary-tab, .settings-tab {
   max-width: 1000px;
   margin: 0 auto;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
 }
 
 .drop-zone {
@@ -659,16 +663,16 @@
 }
 
 .modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed !important;
+  inset: 0 !important;
   background: rgba(0, 0, 0, 0.7);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
+  padding: 8vh 1.5rem 2rem;
+  width: 100vw;
+  height: 100vh;
 }
 
 .modal-content {
@@ -679,6 +683,27 @@
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6c757d;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.modal-close:hover {
+  color: #dc3545;
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .api-guide h4 {
@@ -2383,4 +2408,64 @@
   margin-top: 0;
   margin-bottom: 0.5rem;
   color: #2c3e50;
+}
+
+.startup-tests-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 1200;
+  padding: 8vh 1.5rem 2rem;
+  width: 100vw;
+  height: 100vh;
+}
+
+.startup-tests-modal {
+  width: min(720px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  position: relative;
+}
+
+.startup-tests-summary {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+  font-weight: 600;
+}
+
+.startup-tests-warning {
+  background: #fff3cd;
+  color: #856404;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.startup-tests-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.startup-tests-details {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 0.75rem;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: #ffffff;
 }

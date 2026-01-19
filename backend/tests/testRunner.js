@@ -3,31 +3,68 @@ import Settings from '../models/Settings.js';
 import Glossary from '../models/Glossary.js';
 import { TranslationJob, TranslationChunk, ApiUsage } from '../models/TranslationJob.js';
 import DocumentParser from '../services/documentParser.js';
+import LocalTranslationService from '../services/localTranslationService.js';
+import TranslationService from '../services/translationService.js';
+import ollamaService from '../services/ollamaService.js';
+import { stringify } from 'csv-stringify/sync';
 import Encryption from '../utils/encryption.js';
 
 class TestRunner {
-  constructor() {
+  constructor(options = {}) {
     this.results = {
       passed: 0,
       failed: 0,
+      skipped: 0,
       tests: []
     };
+    this.onProgress = options.onProgress || null;
+    this.shouldCancel = options.shouldCancel || null;
+    this.cancelled = false;
   }
 
   async runTest(name, testFn) {
+    if (this.cancelled) return;
+    if (this.shouldCancel && this.shouldCancel()) {
+      this.cancelled = true;
+      this.results.skipped++;
+      this.results.tests.push({ name, status: 'skipped', error: 'cancelled' });
+      this.reportProgress();
+      return;
+    }
     try {
-      await testFn();
-      this.results.passed++;
-      this.results.tests.push({ name, status: 'passed', error: null });
-      console.log(`✓ ${name}`);
+      const result = await testFn();
+      if (result?.skipped) {
+        this.results.skipped++;
+        this.results.tests.push({ name, status: 'skipped', error: result.reason || 'skipped' });
+        console.warn(`↷ ${name} (${result.reason || 'skipped'})`);
+      } else {
+        this.results.passed++;
+        this.results.tests.push({ name, status: 'passed', error: null });
+        console.log(`✓ ${name}`);
+      }
     } catch (error) {
       this.results.failed++;
       this.results.tests.push({ name, status: 'failed', error: error.message });
       console.error(`✗ ${name}:`, error.message);
     }
+    this.reportProgress();
   }
 
-  async runAllTests() {
+  reportProgress() {
+    if (this.onProgress) {
+      this.onProgress(this.getResults());
+    }
+  }
+
+  skipTest(name, reason = 'skipped') {
+    if (this.cancelled) return;
+    this.results.skipped++;
+    this.results.tests.push({ name, status: 'skipped', error: reason });
+    console.warn(`↷ ${name} (${reason})`);
+    this.reportProgress();
+  }
+
+  async runAllTests(options = {}) {
     console.log('\n========================================');
     console.log('🧪 Running System Tests...');
     console.log('========================================\n');
@@ -77,6 +114,18 @@ class TestRunner {
       if (deleted !== null) throw new Error('Settings delete failed');
     });
 
+    await this.runTest('Settings Persisted in Store', async () => {
+      Settings.set('test_key_persisted', 'persisted_value');
+      const allSettings = Settings.getAll();
+      if (!Object.prototype.hasOwnProperty.call(allSettings, 'test_key_persisted')) {
+        throw new Error('Settings entry not persisted in store');
+      }
+      if (allSettings.test_key_persisted !== 'persisted_value') {
+        throw new Error('Settings persisted value mismatch');
+      }
+      Settings.delete('test_key_persisted');
+    });
+
     await this.runTest('Settings Encryption for API Keys', async () => {
       const apiKey = 'sk-test-api-key-12345';
       Settings.set('deepl_api_key', apiKey);
@@ -95,18 +144,73 @@ class TestRunner {
 
     // Glossary Tests
     await this.runTest('Glossary Add/Retrieve', async () => {
-      const id = Glossary.add('test', 'prueba', 'en', 'es', 'test');
+      const id = Glossary.add('__test__term', 'prueba', 'en', 'es', 'test');
       const entries = Glossary.getAll();
       const found = entries.find(e => e.id === id);
-      if (!found || found.source_term !== 'test') throw new Error('Glossary add/retrieve failed');
+      if (!found || found.source_term !== '__test__term') throw new Error('Glossary add/retrieve failed');
       Glossary.delete(id);
     });
 
     await this.runTest('Glossary Search', async () => {
-      const id = Glossary.add('hello', 'hola', 'en', 'es');
-      const result = Glossary.search('hello', 'en', 'es');
+      const id = Glossary.add('__test__hello', 'hola', 'en', 'es');
+      const result = Glossary.search('__test__hello', 'en', 'es');
       if (!result || result.target_term !== 'hola') throw new Error('Glossary search failed');
       Glossary.delete(id);
+    });
+
+    await this.runTest('Glossary Import/Export', async () => {
+      const importEntries = [
+        {
+          source_term: 'Token',
+          target_term: 'TokenPT',
+          source_language: 'en',
+          target_language: 'pt',
+          category: 'test'
+        },
+        {
+          source_term: 'Engine',
+          target_term: 'Motor',
+          source_language: 'en',
+          target_language: 'pt',
+          category: 'test'
+        }
+      ];
+
+      const importResult = Glossary.importFromArray(importEntries);
+      if (!importResult || importResult.successful < 2) {
+        throw new Error('Glossary import did not insert expected entries');
+      }
+
+      const entries = Glossary.getAll('en', 'pt');
+      const hasToken = entries.some(entry => entry.source_term === 'Token' && entry.target_term === 'TokenPT');
+      const hasEngine = entries.some(entry => entry.source_term === 'Engine' && entry.target_term === 'Motor');
+      if (!hasToken || !hasEngine) {
+        throw new Error('Glossary entries missing after import');
+      }
+
+      const csv = stringify(entries, {
+        header: true,
+        columns: [
+          { key: 'source_term', header: 'Source Term' },
+          { key: 'target_term', header: 'Target Term' },
+          { key: 'source_language', header: 'Source Language' },
+          { key: 'target_language', header: 'Target Language' },
+          { key: 'category', header: 'Category' }
+        ]
+      });
+
+      if (!csv.includes('Source Term') || !csv.includes('Target Term')) {
+        throw new Error('Glossary export missing headers');
+      }
+      if (!csv.includes('Token') || !csv.includes('TokenPT')) {
+        throw new Error('Glossary export missing imported entries');
+      }
+
+      // Cleanup test entries
+      const cleanupEntries = entries.filter(entry => entry.category === 'test');
+      for (const entry of cleanupEntries) {
+        Glossary.delete(entry.id);
+      }
     });
 
     // Translation Job Tests
@@ -163,6 +267,124 @@ class TestRunner {
       if (usage.characters_used < 1000) throw new Error('API usage tracking failed');
     });
 
+    // Translation Smoke Tests (matrix)
+    const providers = options.providers || ['local', 'deepl', 'google', 'openai', 'chatgpt'];
+    const matrix = options.matrix || {};
+    const matrixLLM = matrix.llm ?? [false, true];
+    const matrixHtml = matrix.htmlMode ?? [false, true];
+    const matrixGlossary = matrix.glossary ?? [false, true];
+
+    const runLocalTranslation = async (useLLM, htmlMode, useGlossary) => {
+      const localService = new LocalTranslationService(null, {});
+      const available = await localService.isAvailable();
+      if (!available) {
+        return { skipped: true, reason: 'local-translation-not-running' };
+      }
+
+      if (useLLM) {
+        const ollamaRunning = await ollamaService.isRunning();
+        if (!ollamaRunning) {
+          return { skipped: true, reason: 'ollama-not-running' };
+        }
+      }
+
+      const sourceLang = 'en';
+      const targetLang = 'pt';
+      const text = htmlMode ? '<p>Hello World</p>' : 'Hello World';
+      const glossaryTerms = useGlossary
+        ? [{ source_term: 'World', target_term: 'Mundo', id: 'test-glossary' }]
+        : [];
+
+      const result = await localService.translate(text, sourceLang, targetLang, glossaryTerms, {
+        htmlMode,
+        useLLM,
+        verifyGlossary: useGlossary
+      });
+
+      if (!result?.translatedText || typeof result.translatedText !== 'string') {
+        throw new Error('Local translation returned empty result');
+      }
+      if (/GTERM/i.test(result.translatedText)) {
+        throw new Error('Glossary token leaked in translation output');
+      }
+      if (htmlMode && !/<[^>]+>/.test(result.translatedText)) {
+        throw new Error('HTML mode lost tags in translation output');
+      }
+      if (useGlossary && !/\\bMundo\\b/i.test(result.translatedText)) {
+        throw new Error('Glossary term was not enforced');
+      }
+    };
+
+    const runProviderTranslation = async (provider, apiKey, label) => {
+      const service = new TranslationService(provider, apiKey, {
+        model: Settings.get('openai_model') || 'gpt-3.5-turbo'
+      });
+      const result = await service.translate('Hello world', 'en', 'pt', []);
+      if (!result?.translatedText || typeof result.translatedText !== 'string') {
+        throw new Error(`${label} returned empty translation`);
+      }
+    };
+
+    if (providers.includes('local')) {
+      for (const useLLM of matrixLLM) {
+        for (const htmlMode of matrixHtml) {
+          for (const useGlossary of matrixGlossary) {
+            const nameParts = [
+              'Local Translation Smoke',
+              useLLM ? 'LLM' : 'no-LLM',
+              htmlMode ? 'html' : 'text',
+              useGlossary ? 'glossary' : 'no-glossary'
+            ];
+            await this.runTest(nameParts.join(' | '), async () => {
+              await runLocalTranslation(useLLM, htmlMode, useGlossary);
+            });
+            if (this.cancelled) break;
+          }
+          if (this.cancelled) break;
+        }
+        if (this.cancelled) break;
+      }
+    }
+
+    if (providers.includes('deepl')) {
+      const deeplKey = Settings.get('deepl_api_key');
+      if (!deeplKey) {
+        this.skipTest('DeepL Translation Smoke', 'missing-api-key');
+      } else {
+        await this.runTest('DeepL Translation Smoke', async () => {
+          await runProviderTranslation('deepl', deeplKey, 'DeepL');
+        });
+      }
+    }
+
+    if (providers.includes('google')) {
+      await this.runTest('Google Translation Smoke', async () => {
+        await runProviderTranslation('google', null, 'Google');
+      });
+    }
+
+    if (providers.includes('openai')) {
+      const openaiKey = Settings.get('openai_api_key');
+      if (!openaiKey) {
+        this.skipTest('OpenAI Translation Smoke', 'missing-api-key');
+      } else {
+        await this.runTest('OpenAI Translation Smoke', async () => {
+          await runProviderTranslation('openai', openaiKey, 'OpenAI');
+        });
+      }
+    }
+
+    if (providers.includes('chatgpt')) {
+      const chatgptKey = Settings.get('chatgpt_api_key') || Settings.get('openai_api_key');
+      if (!chatgptKey) {
+        this.skipTest('ChatGPT Translation Smoke', 'missing-api-key');
+      } else {
+        await this.runTest('ChatGPT Translation Smoke', async () => {
+          await runProviderTranslation('chatgpt', chatgptKey, 'ChatGPT');
+        });
+      }
+    }
+
     // Final cleanup: Remove any remaining test entries
     await this.runTest('Cleanup Test Data', async () => {
       // Delete any jobs with test filenames
@@ -192,7 +414,14 @@ class TestRunner {
     console.log(`Total: ${this.results.tests.length}`);
     console.log('========================================\n');
 
-    return this.results;
+    if (this.shouldCancel && this.shouldCancel()) {
+      this.cancelled = true;
+    }
+
+    return {
+      ...this.results,
+      cancelled: this.cancelled
+    };
   }
 
   getResults() {

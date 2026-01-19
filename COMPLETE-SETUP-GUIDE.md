@@ -286,7 +286,7 @@ D:\smart-book-translator\
 ├── launch.bat                    ← Alternative launcher
 │
 ├── QUICK-START-INSTALLER.md      ← How to build installer
-├── INSTALLER-ANSWER.md           ← Quick answer to your question
+├── src/documentation/archive/INSTALLER-ANSWER.md           ← Quick answer to your question
 ├── BUILD-INSTALLER.md            ← Detailed build guide
 ├── WINDOWS_INSTALLATION_GUIDE.md ← User installation guide
 ├── GLOSSARY_VERIFICATION.md      ← Glossary feature explanation
@@ -384,7 +384,7 @@ D:\smart-book-translator\
 
 ### Documentation Files
 
-1. **INSTALLER-ANSWER.md** - Direct answer to "what do I need to do?"
+1. **src/documentation/archive/INSTALLER-ANSWER.md** - Direct answer to "what do I need to do?"
 2. **QUICK-START-INSTALLER.md** - Quick guide to build installer
 3. **BUILD-INSTALLER.md** - Detailed technical guide
 4. **WINDOWS_INSTALLATION_GUIDE.md** - For end users

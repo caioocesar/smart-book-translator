@@ -39,10 +39,15 @@ router.post('/start', async (req, res, next) => {
 router.get('/models', async (req, res, next) => {
   try {
     const models = await ollamaService.getModels();
+    const totalSizeBytes = models.reduce((sum, model) => {
+      const size = model?.size || model?.sizeBytes || 0;
+      return sum + (Number.isFinite(size) ? size : 0);
+    }, 0);
     res.json({
       models,
       count: models.length,
-      recommended: ollamaService.recommendedModel
+      recommended: ollamaService.recommendedModel,
+      totalSizeBytes
     });
   } catch (error) {
     Logger.logError('ollama', 'Failed to get models', error, {});
@@ -81,6 +86,59 @@ router.post('/download-model', async (req, res, next) => {
     res.json(result);
   } catch (error) {
     Logger.logError('ollama', 'Failed to download model', error, { modelName: req.body.modelName });
+    next(error);
+  }
+});
+
+/**
+ * POST /api/ollama/delete-model
+ * Delete/uninstall a model
+ * Body: { modelName: string }
+ */
+router.post('/delete-model', async (req, res, next) => {
+  try {
+    const { modelName } = req.body;
+    if (!modelName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Model name is required'
+      });
+    }
+    const running = await ollamaService.isRunning();
+    if (!running) {
+      return res.status(400).json({
+        success: false,
+        error: 'Ollama service is not running. Please start it first.'
+      });
+    }
+    const result = await ollamaService.deleteModel(modelName);
+    res.json(result);
+  } catch (error) {
+    Logger.logError('ollama', 'Failed to delete model', error, { modelName: req.body.modelName });
+    next(error);
+  }
+});
+
+router.delete('/delete-model', async (req, res, next) => {
+  try {
+    const { modelName } = req.body || {};
+    if (!modelName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Model name is required'
+      });
+    }
+    const running = await ollamaService.isRunning();
+    if (!running) {
+      return res.status(400).json({
+        success: false,
+        error: 'Ollama service is not running. Please start it first.'
+      });
+    }
+    const result = await ollamaService.deleteModel(modelName);
+    res.json(result);
+  } catch (error) {
+    Logger.logError('ollama', 'Failed to delete model', error, { modelName: req.body?.modelName });
     next(error);
   }
 });

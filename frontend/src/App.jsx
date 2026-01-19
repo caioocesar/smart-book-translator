@@ -7,6 +7,7 @@ import HistoryTab from './components/HistoryTab';
 import SystemStatus from './components/SystemStatus';
 import ErrorModal from './components/ErrorModal';
 import LocalStatusModal from './components/LocalStatusModal';
+import StartupTestModal from './components/StartupTestModal';
 import { ErrorProvider, useError } from './contexts/ErrorContext';
 import setupAxiosInterceptor from './utils/axiosInterceptor';
 import { t, getCurrentLanguage, setCurrentLanguage, getAvailableLanguages } from './utils/i18n';
@@ -200,10 +201,18 @@ function App() {
   return (
     <div className="app">
       <ErrorModal />
+      <StartupTestModal />
       <header className="app-header">
         <div className="header-content">
           <h1>📚 Smart Book Translator</h1>
           <div className="header-actions">
+          <button
+            className="btn-system-status"
+            onClick={() => window.dispatchEvent(new Event('run-startup-tests'))}
+            title="Run system startup tests"
+          >
+            ▶ Run Tests
+          </button>
             {/* Language Selector */}
             <select 
               value={currentLanguage}
@@ -330,6 +339,9 @@ function App() {
       {showOllamaPrompt && (
         <div className="modal-overlay" onClick={() => handleOllamaPromptClose(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <button className="modal-close" onClick={() => handleOllamaPromptClose(false)} aria-label="Close">
+              ×
+            </button>
             <h2>🤖 Enhance Your Translations with AI</h2>
             
             <div style={{ padding: '20px 0' }}>
@@ -387,6 +399,9 @@ function App() {
       {showPrivacyNotice && (
         <div className="modal-overlay" onClick={handlePrivacyAccept}>
           <div className="modal-content privacy-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={handlePrivacyAccept} aria-label="Close">
+              ×
+            </button>
             <h2>🔒 Privacy & Legal Notice</h2>
             
             <div className="privacy-content">

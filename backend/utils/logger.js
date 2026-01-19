@@ -15,6 +15,7 @@ if (!fs.existsSync(logsDir)) {
 const errorLogPath = path.join(logsDir, 'errors.log');
 const connectionLogPath = path.join(logsDir, 'connections.log');
 const apiLogPath = path.join(logsDir, 'api.log');
+const appLogPath = path.join(logsDir, 'app.log');
 
 /**
  * Write log entry to file
@@ -37,6 +38,10 @@ function writeLog(filePath, level, message, details = {}) {
   }
 }
 
+function writeAppLog(level, message, details = {}) {
+  writeLog(appLogPath, level, message, details);
+}
+
 /**
  * Log connection errors and issues
  */
@@ -46,6 +51,13 @@ export function logConnection(provider, action, success, details = {}) {
     : `Connection failed: ${provider} - ${action}`;
   
   writeLog(connectionLogPath, success ? 'INFO' : 'ERROR', message, {
+    provider,
+    action,
+    success,
+    ...details
+  });
+  writeAppLog(success ? 'INFO' : 'ERROR', message, {
+    category: 'connection',
     provider,
     action,
     success,
@@ -72,6 +84,7 @@ export function logApiError(provider, endpoint, error, requestDetails = {}) {
   };
   
   writeLog(errorLogPath, 'ERROR', `API Error: ${provider} - ${endpoint}`, errorDetails);
+  writeAppLog('ERROR', `API Error: ${provider} - ${endpoint}`, errorDetails);
   
   // Also log to console for immediate visibility
   console.error(`[API ERROR] ${provider} - ${endpoint}:`, error.message);
@@ -85,6 +98,13 @@ export function logApiError(provider, endpoint, error, requestDetails = {}) {
  */
 export function logApiRequest(provider, endpoint, requestDetails, responseDetails = null) {
   writeLog(apiLogPath, 'INFO', `API Request: ${provider} - ${endpoint}`, {
+    provider,
+    endpoint,
+    request: requestDetails,
+    response: responseDetails,
+    timestamp: new Date().toISOString()
+  });
+  writeAppLog('INFO', `API Request: ${provider} - ${endpoint}`, {
     provider,
     endpoint,
     request: requestDetails,
@@ -113,6 +133,7 @@ export function logError(category, message, error, context = {}) {
   };
   
   writeLog(errorLogPath, 'ERROR', `${category}: ${message}`, errorDetails);
+  writeAppLog('ERROR', `${category}: ${message}`, errorDetails);
   if (errorMessage) {
     console.error(`[${category}] ${message}:`, errorMessage);
   } else {
@@ -132,6 +153,7 @@ export function logInfo(category, message, context = {}) {
   };
   
   writeLog(errorLogPath, 'INFO', `${category}: ${message}`, infoDetails);
+  writeAppLog('INFO', `${category}: ${message}`, infoDetails);
   console.log(`[${category}] ${message}`, context && Object.keys(context).length > 0 ? context : '');
 }
 
@@ -149,6 +171,9 @@ export function getRecentLogs(logType = 'errors', maxLines = 100) {
       break;
     case 'api':
       filePath = apiLogPath;
+      break;
+    case 'app':
+      filePath = appLogPath;
       break;
     default:
       filePath = errorLogPath;
@@ -189,6 +214,9 @@ export function clearOldLogs(logType = 'errors', keepLines = 1000) {
       break;
     case 'api':
       filePath = apiLogPath;
+      break;
+    case 'app':
+      filePath = appLogPath;
       break;
     default:
       return;

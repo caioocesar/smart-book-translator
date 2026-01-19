@@ -38,25 +38,28 @@ async function waitForBackend(maxAttempts = 30) {
 // Start backend server
 function startBackend() {
   return new Promise((resolve, reject) => {
-    const backendPath = path.join(__dirname, '..', 'backend');
+    const backendPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'backend')
+      : path.join(__dirname, '..', 'backend');
     const isWindows = process.platform === 'win32';
     
     console.log('🚀 Starting backend server...');
     
-    backendProcess = spawn(
-      isWindows ? 'node.exe' : 'node',
-      ['server.js'],
-      {
-        cwd: backendPath,
-        env: {
-          ...process.env,
-          NODE_ENV: 'production',
-          PORT: '5000',
-          ELECTRON_MODE: 'true'
-        },
-        stdio: ['ignore', 'pipe', 'pipe']
-      }
-    );
+    const execPath = app.isPackaged ? process.execPath : (isWindows ? 'node.exe' : 'node');
+    const env = {
+      ...process.env,
+      NODE_ENV: 'production',
+      PORT: '5000',
+      ELECTRON_MODE: 'true',
+      ELECTRON_USER_DATA: app.getPath('userData'),
+      ...(app.isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {})
+    };
+
+    backendProcess = spawn(execPath, ['server.js'], {
+      cwd: backendPath,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
 
     backendProcess.stdout.on('data', (data) => {
       console.log(`[Backend] ${data.toString().trim()}`);
@@ -98,8 +101,10 @@ function createWindow() {
     show: false // Don't show until ready
   });
 
-  // Load the app
-  mainWindow.loadURL('http://localhost:3000');
+  // Load the app (frontend served by backend in production)
+  const frontendUrl = process.env.FRONTEND_URL
+    || (process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : 'http://localhost:5000');
+  mainWindow.loadURL(frontendUrl);
 
   // Show window when ready
   mainWindow.once('ready-to-show', () => {

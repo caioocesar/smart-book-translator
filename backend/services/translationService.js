@@ -463,7 +463,8 @@ ${useHtml ? '- The text was extracted from HTML, so preserve paragraph breaks an
         const term = glossaryTerms[i];
         const placeholder = `__GLOSSARY_${i}__`;
         glossaryMap.set(placeholder, term.target_term);
-        const regex = new RegExp(term.source_term, 'gi');
+        const escapedTerm = String(term.source_term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escapedTerm}\\b`, 'gi');
         preprocessedText = preprocessedText.replace(regex, placeholder);
       }
 

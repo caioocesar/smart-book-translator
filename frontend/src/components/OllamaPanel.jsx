@@ -2,25 +2,34 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { t } from '../utils/i18n.js';
 import NotificationModal from './NotificationModal.jsx';
+import ConfirmModal from './ConfirmModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 function OllamaPanel() {
   const [status, setStatus] = useState(null);
   const [systemInfo, setSystemInfo] = useState(null);
+  const [models, setModels] = useState([]);
+  const [modelsSizeBytes, setModelsSizeBytes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [modelAction, setModelAction] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [notification, setNotification] = useState({ show: false, type: 'info', title: '', message: '' });
 
   useEffect(() => {
     loadStatus();
+    loadModels();
     loadSystemInfo();
     
     // Poll status every 10 seconds
-    const interval = setInterval(loadStatus, 30000); // Every 30s (reduced from 10s)
+    const interval = setInterval(() => {
+      loadStatus();
+      loadModels();
+    }, 30000); // Every 30s (reduced from 10s)
     return () => clearInterval(interval);
   }, []);
 
@@ -57,6 +66,18 @@ function OllamaPanel() {
     }
   };
 
+  const loadModels = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/ollama/models`);
+      setModels(response.data?.models || []);
+      setModelsSizeBytes(response.data?.totalSizeBytes || 0);
+    } catch (error) {
+      console.error('Failed to load Ollama models:', error);
+      setModels([]);
+      setModelsSizeBytes(0);
+    }
+  };
+
   const handleStart = async () => {
     setLoading(true);
     try {
@@ -90,42 +111,82 @@ function OllamaPanel() {
     }
   };
 
-  const handleDownloadModel = async () => {
-    if (!confirm(`Download recommended model (${status?.recommendedModel})?\n\nThis will download ~2GB of data.`)) {
-      return;
-    }
-
+  const handleDownloadModel = async (modelName = status?.recommendedModel) => {
+    if (!modelName) return;
+    setModelAction({
+      action: 'install',
+      modelName,
+      status: 'starting',
+      message: 'Starting download...'
+    });
     setDownloading(true);
     try {
       const response = await axios.post(`${API_URL}/api/ollama/download-model`, {
-        modelName: status.recommendedModel
+        modelName
       });
 
       if (response.data.success) {
-        setNotification({
-          show: true,
-          type: 'success',
-          title: 'Success',
-          message: '✓ Model downloaded successfully!'
+        setModelAction({
+          action: 'install',
+          modelName,
+          status: 'success',
+          message: response.data.message || `Model installed: ${modelName}`
         });
         await loadStatus();
+        await loadModels();
       } else {
-        setNotification({
-          show: true,
-          type: 'error',
-          title: 'Download Failed',
-          message: `Failed to download model: ${response.data.message}`
+        setModelAction({
+          action: 'install',
+          modelName,
+          status: 'error',
+          message: response.data.message || 'Failed to download model'
         });
       }
     } catch (error) {
-      setNotification({
-        show: true,
-        type: 'error',
-        title: 'Error',
-        message: `Error: ${error.message}`
+      setModelAction({
+        action: 'install',
+        modelName,
+        status: 'error',
+        message: error.message
       });
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleDeleteModel = async (modelName) => {
+    if (!modelName) return;
+    setModelAction({
+      action: 'uninstall',
+      modelName,
+      status: 'starting',
+      message: 'Removing model...'
+    });
+    try {
+      const response = await axios.post(`${API_URL}/api/ollama/delete-model`, { modelName });
+      if (response.data.success) {
+        setModelAction({
+          action: 'uninstall',
+          modelName,
+          status: 'success',
+          message: response.data.message || `Model removed: ${modelName}`
+        });
+        await loadModels();
+      } else {
+        setModelAction({
+          action: 'uninstall',
+          modelName,
+          status: 'error',
+          message: response.data.message || 'Failed to remove model'
+        });
+      }
+    } catch (error) {
+      setModelAction({
+        action: 'uninstall',
+        modelName,
+        status: 'error',
+        message: error.message
+      });
     }
   };
 
@@ -157,6 +218,23 @@ function OllamaPanel() {
   const isInstalled = status?.installed;
   const isRunning = status?.running;
   const hasRecommendedModel = status?.recommendedInstalled;
+  const installedNames = models.map(model => model.name);
+  const formatBytes = (value) => {
+    if (!value) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = value;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+  };
+  const pipelineModels = [
+    { key: 'qwen', label: 'Qwen 2.5', name: 'qwen2.5:7b' },
+    { key: 'llama', label: 'Llama 3.1', name: 'llama3.1:8b' },
+    { key: 'mistral', label: 'Mistral', name: 'mistral:7b' }
+  ];
 
   return (
     <div className="ollama-panel">
@@ -209,6 +287,7 @@ function OllamaPanel() {
               <p><strong>Status:</strong> ✓ Ready</p>
               <p><strong>Version:</strong> {status.version || 'Unknown'}</p>
               <p><strong>Models Installed:</strong> {status.modelCount || 0}</p>
+              <p><strong>Disk Used:</strong> {formatBytes(modelsSizeBytes)}</p>
               
               {!hasRecommendedModel && (
                 <div className="warning-box" style={{ marginTop: '12px' }}>
@@ -229,6 +308,54 @@ function OllamaPanel() {
                   ✓ Recommended model installed: <code>{status.recommendedModel}</code>
                 </p>
               )}
+              {hasRecommendedModel && (
+                <button
+                  className="btn-small"
+                  onClick={() => setConfirmAction({
+                    type: 'uninstall',
+                    modelName: status.recommendedModel
+                  })}
+                  style={{ marginTop: '6px' }}
+                >
+                  🗑️ Uninstall recommended model
+                </button>
+              )}
+
+              <div style={{ marginTop: '12px' }}>
+                <p style={{ fontWeight: 600, marginBottom: '6px' }}>Extra pipeline models</p>
+                {pipelineModels.map(model => {
+                  const installed = installedNames.includes(model.name);
+                  return (
+                    <div key={model.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      <span style={{ minWidth: '120px' }}>{model.label}</span>
+                      <code style={{ flex: 1 }}>{model.name}</code>
+                      {installed ? (
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <span style={{ color: '#28a745', fontWeight: 600 }}>Installed</span>
+                          <button
+                            className="btn-small"
+                            onClick={() => setConfirmAction({
+                              type: 'uninstall',
+                              modelName: model.name
+                            })}
+                            disabled={downloading}
+                          >
+                            🗑️ Uninstall
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn-small"
+                          onClick={() => handleDownloadModel(model.name)}
+                          disabled={downloading}
+                        >
+                          {downloading ? '⏳' : '⬇️ Download'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="status-actions">
@@ -400,6 +527,40 @@ function OllamaPanel() {
         message={notification.message}
         type={notification.type}
       />
+
+      {modelAction && (
+        <div className="modal-overlay" onClick={() => setModelAction(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setModelAction(null)} aria-label="Close">
+              ×
+            </button>
+            <h3 style={{ marginTop: 0 }}>
+              {modelAction.action === 'install' ? 'Installing model' : 'Uninstalling model'}
+            </h3>
+            <p><strong>Model:</strong> {modelAction.modelName}</p>
+            <p><strong>Status:</strong> {modelAction.status}</p>
+            <p>{modelAction.message}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+              <button className="btn-secondary" onClick={() => setModelAction(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmAction && (
+        <ConfirmModal
+          isOpen={!!confirmAction}
+          onClose={() => setConfirmAction(null)}
+          onConfirm={() => handleDeleteModel(confirmAction.modelName)}
+          title="Uninstall model?"
+          message={`Are you sure you want to uninstall "${confirmAction.modelName}"?`}
+          confirmText="Uninstall"
+          cancelText="Cancel"
+          type="danger"
+        />
+      )}
     </div>
   );
 }

@@ -21,6 +21,7 @@ class TranslationJob {
   static getAll(limit = 50) {
     const stmt = db.prepare(`
       SELECT * FROM translation_jobs 
+      WHERE filename NOT LIKE '__test__%' AND filename NOT LIKE 'test.%'
       ORDER BY created_at DESC 
       LIMIT ?
     `);
@@ -113,6 +114,11 @@ class TranslationChunk {
       ORDER BY chunk_index
     `);
     return stmt.all(jobId);
+  }
+
+  static deleteByJobId(jobId) {
+    const stmt = db.prepare('DELETE FROM translation_chunks WHERE job_id = ?');
+    stmt.run(jobId);
   }
 
   static updateStatus(id, status) {
