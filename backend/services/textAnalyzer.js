@@ -46,7 +46,7 @@ class TextAnalyzer {
    * @param {string} targetLang - Target language code
    * @returns {Promise<Object>} Analysis report with issues and metrics
    */
-  async analyzeTranslation(originalText, translatedText, sourceLang, targetLang) {
+  async analyzeTranslation(originalText, translatedText, sourceLang, targetLang, formality = 'neutral') {
     try {
       await this.initialize();
 
@@ -59,19 +59,22 @@ class TextAnalyzer {
       const sentiment = this.analyzeSentiment(translatedText, targetLang);
       const language = this.detectLanguage(translatedText, targetLang);
       
-      // NEW: Analyze grammar for Portuguese
+      // Analyze grammar for Portuguese
       let grammarIssues = [];
       if (targetLang.toLowerCase() === 'pt' || targetLang.toLowerCase() === 'pt-br') {
         grammarIssues = this.analyzePortugueseGrammar(translatedText);
       }
       
-      // NEW: Compute quality score
+      // NEW: Analyze formality and regional variant
+      const formalityAnalysis = this.analyzeFormalityAndVariant(translatedText, targetLang, formality);
+      
+      // Compute quality score
       const qualityScore = this.computeQualityScore(
-        readability, sentences, words, sentiment, language, grammarIssues, targetLang
+        readability, sentences, words, sentiment, language, grammarIssues, formalityAnalysis, targetLang
       );
       
       // Identify specific issues
-      const issues = this.identifyIssues(readability, sentences, words, sentiment, language, targetLang, grammarIssues);
+      const issues = this.identifyIssues(readability, sentences, words, sentiment, language, targetLang, grammarIssues, formalityAnalysis);
       
       const duration = Date.now() - startTime;
 
@@ -81,15 +84,17 @@ class TextAnalyzer {
         words,
         sentiment,
         language,
-        grammarIssues,  // NEW
-        qualityScore,   // NEW
+        grammarIssues,
+        formalityAnalysis,
+        qualityScore,
         issues,
         duration,
-        hasIssues: issues.length > 0 || grammarIssues.length > 0
+        hasIssues: issues.length > 0 || grammarIssues.length > 0 || formalityAnalysis?.issues?.length > 0
       };
 
-      if (issues.length > 0 || grammarIssues.length > 0) {
-        console.log(`📊 Text Analysis: Quality score ${qualityScore}/100, found ${issues.length} issue(s) + ${grammarIssues.length} grammar issue(s)`);
+      const totalIssues = issues.length + grammarIssues.length + (formalityAnalysis?.issues?.length || 0);
+      if (totalIssues > 0) {
+        console.log(`📊 Text Analysis: Quality score ${qualityScore}/100, found ${issues.length} issue(s) + ${grammarIssues.length} grammar issue(s) + ${formalityAnalysis?.issues?.length || 0} formality/variant issue(s)`);
       } else {
         console.log(`📊 Text Analysis: Quality score ${qualityScore}/100, no significant issues detected`);
       }
@@ -105,6 +110,7 @@ class TextAnalyzer {
         sentiment: null,
         language: null,
         grammarIssues: [],
+        formalityAnalysis: { detectedFormality: 'neutral', detectedVariant: null, issues: [] },
         qualityScore: 50,  // Default middle score on error
         issues: [],
         duration: 0,
@@ -326,10 +332,158 @@ class TextAnalyzer {
   }
 
   /**
+   * Analyze formality level and regional variant
+   * @private
+   */
+  analyzeFormalityAndVariant(text, targetLang, expectedFormality = 'neutral') {
+    const issues = [];
+    let detectedFormality = 'neutral';
+    let detectedVariant = null;
+
+    // Only analyze Portuguese for now
+    if (targetLang.toLowerCase() !== 'pt' && targetLang.toLowerCase() !== 'pt-br') {
+      return { detectedFormality, detectedVariant, issues };
+    }
+
+    // Detect regional variant (Brazilian vs European Portuguese)
+    const europeanIndicators = [
+      /\bdemasiado\b/gi,
+      /\bpropina\b/gi,        // tip/bribe (EU: tip, BR: bribe)
+      /\bcomboio\b/gi,        // train (EU), BR uses "trem"
+      /\bautocarro\b/gi,      // bus (EU), BR uses "ônibus"
+      /\btelemóvel\b/gi,      // mobile phone (EU), BR uses "celular"
+      /\bconduzir\b/gi,       // to drive (EU), BR uses "dirigir"
+      /\bsótão\b/gi,          // attic (EU), BR uses "sótão" or "ático"
+      /\bpassadeira\b/gi      // crosswalk (EU), BR uses "faixa de pedestres"
+    ];
+
+    const brazilianIndicators = [
+      /\bdemais\b/gi,
+      /\btrem\b/gi,
+      /\bônibus\b/gi,
+      /\bcelular\b/gi,
+      /\bdirigir\b/gi,
+      /\bfaixa de pedestres\b/gi
+    ];
+
+    let europeanScore = 0;
+    let brazilianScore = 0;
+
+    europeanIndicators.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) {
+        europeanScore += matches.length;
+        issues.push({
+          type: 'VARIANT',
+          severity: 'medium',
+          description: `European Portuguese expression detected: "${matches[0]}"`,
+          suggestion: 'Consider using Brazilian Portuguese equivalent'
+        });
+      }
+    });
+
+    brazilianIndicators.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) brazilianScore += matches.length;
+    });
+
+    // Determine variant
+    if (europeanScore > brazilianScore * 2) {
+      detectedVariant = 'european';
+      if (targetLang.toLowerCase() === 'pt-br') {
+        // Mismatch: European Portuguese when Brazilian expected
+        issues.push({
+          type: 'VARIANT_MISMATCH',
+          severity: 'high',
+          description: 'Text uses European Portuguese but Brazilian Portuguese is expected',
+          suggestion: 'Convert to Brazilian Portuguese expressions and vocabulary'
+        });
+      }
+    } else if (brazilianScore > 0) {
+      detectedVariant = 'brazilian';
+    }
+
+    // Detect formality level
+    const informalIndicators = [
+      /\bvocê\b/gi,           // informal "you"
+      /\bpra\b/gi,            // colloquial "para"
+      /\bcê\b/gi,             // very informal "você"
+      /\btá\b/gi,             // colloquial "está"
+      /\bbeleza\b/gi,         // casual greeting
+      /\bcara\b/gi,           // dude/guy
+      /\bgalera\b/gi,         // folks/guys
+      /\btipo\b/gi            // like (filler word)
+    ];
+
+    const formalIndicators = [
+      /\bsenhor(a)?\b/gi,     // formal "you" (sir/madam)
+      /\bvossa\s+excelência\b/gi,
+      /\bprezado(a)?\b/gi,    // dear (formal)
+      /\batenciosamente\b/gi, // sincerely
+      /\bcordialmente\b/gi,   // cordially
+      /\bsolicitar\b/gi,      // request (formal verb)
+      /\bagradecimento\b/gi   // thanks (formal noun)
+    ];
+
+    let informalScore = 0;
+    let formalScore = 0;
+
+    informalIndicators.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) informalScore += matches.length;
+    });
+
+    formalIndicators.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) formalScore += matches.length;
+    });
+
+    // Determine formality (normalize by text length)
+    const textLength = text.split(/\s+/).length;
+    const informalDensity = (informalScore / textLength) * 100;
+    const formalDensity = (formalScore / textLength) * 100;
+
+    if (formalDensity > informalDensity * 2 && formalScore > 0) {
+      detectedFormality = 'formal';
+    } else if (informalDensity > formalDensity * 2 && informalScore > 2) {
+      detectedFormality = 'informal';
+    } else {
+      detectedFormality = 'neutral';
+    }
+
+    // Check formality mismatch
+    if (expectedFormality === 'formal' && detectedFormality === 'informal') {
+      issues.push({
+        type: 'FORMALITY_MISMATCH',
+        severity: 'high',
+        description: 'Text is too informal for expected formal context',
+        suggestion: 'Use formal pronouns (senhor/senhora) and avoid colloquialisms'
+      });
+    } else if (expectedFormality === 'informal' && detectedFormality === 'formal') {
+      issues.push({
+        type: 'FORMALITY_MISMATCH',
+        severity: 'medium',
+        description: 'Text is too formal for expected informal context',
+        suggestion: 'Use more casual language and informal pronouns (você)'
+      });
+    }
+
+    return {
+      detectedFormality,
+      detectedVariant,
+      informalScore,
+      formalScore,
+      europeanScore,
+      brazilianScore,
+      issues
+    };
+  }
+
+  /**
    * Compute translation quality score (0-100)
    * @private
    */
-  computeQualityScore(readability, sentences, words, sentiment, language, grammarIssues, targetLang) {
+  computeQualityScore(readability, sentences, words, sentiment, language, grammarIssues, formalityAnalysis, targetLang) {
     let score = 100;
 
     // Deduct for readability issues
@@ -368,6 +522,13 @@ class TextAnalyzer {
     if (grammarIssues && grammarIssues.length > 0) {
       const grammarPenalty = Math.min(20, grammarIssues.length * 4);
       score -= grammarPenalty;
+    }
+
+    // NEW: Deduct for formality/variant mismatches
+    if (formalityAnalysis && formalityAnalysis.issues && formalityAnalysis.issues.length > 0) {
+      // Moderate penalty for formality issues (they're style issues, not errors)
+      const formalityPenalty = Math.min(15, formalityAnalysis.issues.length * 3);
+      score -= formalityPenalty;
     }
 
     // Ensure score is between 0-100
@@ -425,8 +586,20 @@ class TextAnalyzer {
    * Identify specific issues for LLM to fix
    * @private
    */
-  identifyIssues(readability, sentences, words, sentiment, language, targetLang, grammarIssues = []) {
+  identifyIssues(readability, sentences, words, sentiment, language, targetLang, grammarIssues = [], formalityAnalysis = null) {
     const issues = [];
+
+    // Formality and variant issues (HIGHEST PRIORITY after grammar)
+    if (formalityAnalysis && formalityAnalysis.issues && formalityAnalysis.issues.length > 0) {
+      formalityAnalysis.issues.forEach(fIssue => {
+        issues.push({
+          type: fIssue.type.toLowerCase(),
+          severity: fIssue.severity,
+          description: fIssue.description,
+          suggestion: fIssue.suggestion
+        });
+      });
+    }
 
     // Grammar issues (Portuguese-specific) - HIGHEST PRIORITY
     if (grammarIssues && grammarIssues.length > 0) {

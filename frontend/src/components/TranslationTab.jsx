@@ -5,6 +5,8 @@ import { t } from '../utils/i18n.js';
 import DocumentInfoBox from './DocumentInfoBox.jsx';
 import LocalTranslationPanel from './LocalTranslationPanel.jsx';
 import OllamaPanel from './OllamaPanel.jsx';
+import ChunkProgressBar from './ChunkProgressBar.jsx';
+import ChunkModal from './ChunkModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -31,14 +33,14 @@ function TranslationTab({ settings }) {
   const [recommendations, setRecommendations] = useState(null);
   const [analyzingDocument, setAnalyzingDocument] = useState(false);
   // Provider and LLM-aware default chunk size
-  // LLM-enhanced: 3500 for better model handling
+  // LLM-enhanced: 1800 for maximum reliability (prevents truncation)
   // Local without LLM: 6000 for efficiency
-  // Cloud APIs: 3000 for cost management
+  // Cloud APIs: 2000 for reliability
   const getDefaultChunkSize = (provider, llmEnabled = false) => {
     if (provider === 'local') {
-      return llmEnabled ? 3500 : 6000;
+      return llmEnabled ? 1800 : 6000;
     }
-    return 3000;
+    return 2000;
   };
   const [chunkSize, setChunkSize] = useState(settings.chunkSize || getDefaultChunkSize('local'));
   const [openaiModel, setOpenaiModel] = useState(settings.openai_model || 'gpt-3.5-turbo');
@@ -63,6 +65,10 @@ function TranslationTab({ settings }) {
     num_thread: '',
     num_gpu: ''
   });
+  const [recommendedChunkSize, setRecommendedChunkSize] = useState(null);
+  const [modelLimits, setModelLimits] = useState(null);
+  const [showChunkModal, setShowChunkModal] = useState(false);
+  const [selectedChunks, setSelectedChunks] = useState(null);
   const [ollamaSystemInfo, setOllamaSystemInfo] = useState(null);
   const [ollamaModels, setOllamaModels] = useState([]);
   
@@ -88,6 +94,13 @@ function TranslationTab({ settings }) {
         ...updates
       }
     }));
+  };
+
+  const handleChunkClick = (square) => {
+    if (square && square.chunks) {
+      setSelectedChunks(square.chunks);
+      setShowChunkModal(true);
+    }
   };
 
   const getRecommendedGenOptions = () => {
@@ -122,7 +135,7 @@ function TranslationTab({ settings }) {
   // Update chunk size when provider or LLM changes (unless user has manually set it)
   useEffect(() => {
     // Only auto-update if chunk size is at a default value
-    const isDefaultChunkSize = chunkSize === 3000 || chunkSize === 3500 || chunkSize === 6000;
+    const isDefaultChunkSize = chunkSize === 1800 || chunkSize === 2000 || chunkSize === 6000;
     if (isDefaultChunkSize) {
       const hasLLMStages = llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled;
       const isLLMEnabled = useLLM || hasLLMStages;
@@ -162,6 +175,48 @@ function TranslationTab({ settings }) {
       loadOllamaModels();
     }
   }, [apiProvider, useLLM]);
+
+  // Fetch recommended chunk size based on pipeline configuration
+  useEffect(() => {
+    const fetchRecommendedChunkSize = async () => {
+      try {
+        // Only fetch if any pipeline stage is enabled
+        const hasEnabledStages = Object.values(llmPipeline).some(stage => stage.enabled && stage.model);
+        if (!hasEnabledStages) {
+          setRecommendedChunkSize(null);
+          return;
+        }
+
+        const response = await axios.post(`${API_URL}/api/model-limits/recommend-chunk-size`, {
+          pipeline: llmPipeline
+        });
+
+        if (response.data.success) {
+          setRecommendedChunkSize(response.data.recommendedChunkSize);
+        }
+      } catch (error) {
+        console.error('Error fetching recommended chunk size:', error);
+      }
+    };
+
+    fetchRecommendedChunkSize();
+  }, [llmPipeline]);
+
+  // Load model limits on mount
+  useEffect(() => {
+    const fetchModelLimits = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/model-limits`);
+        if (response.data.success) {
+          setModelLimits(response.data.models);
+        }
+      } catch (error) {
+        console.error('Error fetching model limits:', error);
+      }
+    };
+
+    fetchModelLimits();
+  }, []);
   
   // Also update API key when settings change (e.g., after saving in Settings tab)
   useEffect(() => {
@@ -867,20 +922,29 @@ function TranslationTab({ settings }) {
             <input
               type="number"
               value={chunkSize}
-              onChange={(e) => setChunkSize(parseInt(e.target.value) || (apiProvider === 'local' ? 2400 : 2000))}
+              onChange={(e) => setChunkSize(parseInt(e.target.value) || (apiProvider === 'local' ? 1800 : 2000))}
               min={500}
-              max={4000}
+              max={8000}
               step={100}
             />
             <p className="help-text" style={{ fontSize: '0.85em', marginTop: '4px', opacity: 0.8 }}>
               {documentInfo && recommendations && recommendations[0] ? (
-                <>Recommended: {recommendations[0].recommendedChunkSize.toLocaleString()} tokens (from {recommendations[0].model})</>
+                <>📄 Document-based: {recommendations[0].recommendedChunkSize.toLocaleString()} tokens (from {recommendations[0].model})</>
+              ) : recommendedChunkSize ? (
+                <>🤖 Model-based: {recommendedChunkSize.toLocaleString()} tokens 
+                  {chunkSize > recommendedChunkSize * 1.5 && (
+                    <span style={{ color: '#ff6b6b', fontWeight: 'bold' }}> ⚠️ Current size may cause timeouts!</span>
+                  )}
+                  {chunkSize > recommendedChunkSize * 2 && (
+                    <span style={{ color: '#ff0000', fontWeight: 'bold' }}> 🚨 CRITICAL: Reduce chunk size to avoid failures!</span>
+                  )}
+                </>
               ) : apiProvider === 'local' && (useLLM || llmPipeline?.validation?.enabled || llmPipeline?.rewrite?.enabled || llmPipeline?.technical?.enabled) ? (
-                <>Default: 2400 tokens (local with LLM). Token-based chunking prevents overflow with 4K-8K context models. ~2400 tokens ≈ 9,600 characters.</>
+                <>💡 Recommended: 1800 tokens for LLM pipeline. Smaller chunks prevent truncation and timeouts. ~1800 tokens ≈ 7,200 characters.</>
               ) : apiProvider === 'local' ? (
-                <>Default: 3000 tokens (local without LLM). Larger chunks are more efficient when using only LibreTranslate. ~3000 tokens ≈ 12,000 characters.</>
+                <>💡 Recommended: 6000 tokens (LibreTranslate only). Larger chunks are efficient without LLM. ~6000 tokens ≈ 24,000 characters.</>
               ) : (
-                <>Default: 2000 tokens (~8,000 chars). Token-based chunking manages API costs and context limits better.</>
+                <>💡 Recommended: 3000 tokens. Balances API cost and quality. ~3000 tokens ≈ 12,000 characters.</>
               )}
             </p>
           </div>
@@ -1132,15 +1196,18 @@ function TranslationTab({ settings }) {
                           label: '🔍 Validation', 
                           hint: 'Recommended: qwen2.5:7b', 
                           recommended: 'qwen2.5:7b',
-                          description: 'Detects translation issues (grammar, meaning). Returns "OK" or list of issues. ~200 tokens output.',
+                          description: 'Detects translation issues (grammar, meaning). Returns "OK" or list of issues.',
+                          chunkSize: '2000 tokens max',
                           alwaysEnabled: false
                         },
                         { 
                           key: 'rewrite', 
                           label: '✏️ Rewrite', 
-                          hint: 'Recommended: llama3.1:8b', 
+                          hint: 'Recommended: llama3.1:8b (3B model fails with HTML)', 
                           recommended: 'llama3.1:8b',
-                          description: 'Rewrites text ONLY if validation found issues. Fixes grammar/semantic problems. ~1600 tokens output.',
+                          description: 'Rewrites text ONLY if validation found issues. Fixes grammar/semantic problems.',
+                          chunkSize: 'llama3.2:3b → 1200 tokens (plain text only) | llama3.1:8b → 1800 tokens',
+                          warning: '⚠️ llama3.2:3b NOT recommended for HTML content - use llama3.1:8b instead',
                           alwaysEnabled: false
                         },
                         { 
@@ -1148,7 +1215,8 @@ function TranslationTab({ settings }) {
                           label: '🔧 Technical Check', 
                           hint: 'Recommended: mistral:7b', 
                           recommended: 'mistral:7b',
-                          description: 'Optional final review for technical accuracy, terminology, and formatting. ~1600 tokens output.',
+                          description: 'Optional final review for technical accuracy, terminology, and formatting.',
+                          chunkSize: '1800 tokens max',
                           alwaysEnabled: false
                         }
                       ].map(stage => (
@@ -1164,8 +1232,11 @@ function TranslationTab({ settings }) {
                               <span style={{ fontWeight: 600, fontSize: '0.9em' }}>
                                 {stage.label}
                               </span>
-                              <p style={{ fontSize: '0.75em', color: '#666', margin: '4px 0 8px 0' }}>
+                              <p style={{ fontSize: '0.75em', color: '#666', margin: '4px 0 4px 0' }}>
                                 {stage.description}
+                              </p>
+                              <p style={{ fontSize: '0.7em', color: '#1a73e8', margin: '0 0 8px 0', fontWeight: 500 }}>
+                                📊 {stage.chunkSize}
                               </p>
                               <select
                                 value={llmPipeline[stage.key].model}
@@ -1447,20 +1518,25 @@ function TranslationTab({ settings }) {
           );
         })()}
 
-        {progress && (
+        {progress && progress.chunks && (
           <div className="progress-section">
             <h3>Translation Progress</h3>
-            <div className="progress-bar">
-              <div 
-                className="progress-fill" 
-                style={{ width: `${progress.percentage}%` }}
-              />
-            </div>
-            <p>{progress.completed} / {progress.total} chunks completed ({progress.percentage}%)</p>
-            {progress.failed > 0 && (
-              <p className="warning">⚠️ {progress.failed} chunks failed</p>
-            )}
+            <ChunkProgressBar 
+              chunks={progress.chunks}
+              totalChunks={progress.total}
+              onChunkClick={handleChunkClick}
+            />
           </div>
+        )}
+
+        {showChunkModal && selectedChunks && (
+          <ChunkModal
+            chunks={selectedChunks}
+            onClose={() => {
+              setShowChunkModal(false);
+              setSelectedChunks(null);
+            }}
+          />
         )}
       </div>
 

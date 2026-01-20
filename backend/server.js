@@ -20,6 +20,7 @@ import apiPlansRoutes from './routes/apiPlans.js';
 import documentAnalysisRoutes from './routes/documentAnalysis.js';
 import localTranslationRoutes from './routes/localTranslation.js';
 import ollamaRoutes from './routes/ollama.js';
+import modelLimitsRoutes from './routes/modelLimits.js';
 
 // Import error handling middleware
 import errorHandler, { notFoundHandler, setupGlobalErrorHandlers } from './middleware/errorHandler.js';
@@ -133,6 +134,7 @@ app.use('/api/plans', apiPlansRoutes);
 app.use('/api/document', documentAnalysisRoutes);
 app.use('/api/local-translation', localTranslationRoutes);
 app.use('/api/ollama', ollamaRoutes);
+app.use('/api/model-limits', modelLimitsRoutes);
 
 // Initialize new pipeline settings
 console.log('🔧 Initializing new pipeline settings...');

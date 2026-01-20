@@ -234,7 +234,8 @@ class LocalTranslationService {
             text,
             translatedText,
             sourceLang,
-            targetLang
+            targetLang,
+            options.formality || Settings.get('ollamaFormality') || 'neutral'
           );
           
           const analysisDuration = Date.now() - analysisStartTime;
@@ -321,43 +322,7 @@ class LocalTranslationService {
               }
             }
 
-            if (skipLLMIfNoIssues && analysisReport && analysisReport.hasIssues === false) {
-              llmStats = { skipped: true, reason: 'no-issues' };
-              console.log('🤖 Skipping LLM enhancement (no issues detected)');
-            } else {
-              console.log('🤖 Applying LLM enhancement...');
-              const llmStartTime = Date.now();
-              
-              const llmResult = await ollamaService.processTranslation(translatedText, {
-                sourceLang,
-                targetLang,
-                formality: options.formality || Settings.get('ollamaFormality') || 'neutral',
-                improveStructure: options.improveStructure !== false && (Settings.get('ollamaTextStructure') !== false),
-                verifyGlossary: options.verifyGlossary || Settings.get('ollamaGlossaryCheck') || false,
-                glossaryTerms: glossaryTerms,
-                model: options.ollamaModel || Settings.get('ollamaModel') || null,
-                analysisReport: analysisReport, // Pass analysis to LLM
-                generationOptions: llmGenerationOptions
-              });
-              
-              if (llmResult.success) {
-                translatedText = llmResult.enhancedText;
-                llmStats = {
-                  duration: Date.now() - llmStartTime,
-                  model: llmResult.model,
-                  changes: llmResult.changes,
-                  issuesAddressed: analysisReport?.issues?.length || 0,
-                  qualityScore: analysisReport?.qualityScore || null,
-                  stages: []
-                };
-                console.log(`✓ LLM enhancement completed in ${llmStats.duration}ms`);
-                if (analysisReport?.hasIssues) {
-                  console.log(`  → Addressed ${analysisReport.issues.length} identified issue(s)`);
-                }
-              } else {
-                console.warn('⚠️ LLM enhancement failed:', llmResult.error);
-              }
-            }
+            // Removed old "LLM enhancement" step - now handled by pipeline only
 
             // Re-filter enabled stages after smart pipeline logic
             const finalEnabledStages = pipelineStages.filter(stage => stage.enabled);

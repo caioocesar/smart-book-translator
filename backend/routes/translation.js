@@ -407,7 +407,8 @@ router.get('/status/:jobId', async (req, res) => {
         completed,
         failed,
         pending: chunks.length - completed - failed,
-        percentage: Math.round((completed / chunks.length) * 100)
+        percentage: Math.round((completed / chunks.length) * 100),
+        chunks: chunks // Include full chunk data for detailed view
       }
     });
   } catch (error) {

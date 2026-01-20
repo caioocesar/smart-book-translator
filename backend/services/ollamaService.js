@@ -393,6 +393,10 @@ class OllamaService {
         };
       }
 
+      // Detect HTML content and text length EARLY (needed for prompt building)
+      const hasHtmlTags = /<[^>]+>/.test(translatedText);
+      const textLength = translatedText.length;
+
       // Build the prompt based on options
       const prompt = this.buildEnhancementPrompt(
         translatedText,
@@ -402,7 +406,7 @@ class OllamaService {
         improveStructure,
         verifyGlossary,
         glossaryTerms,
-        { outputJson: true, analysisReport, role }
+        { outputJson: true, analysisReport, role, hasHtmlTags, textLength }
       );
 
       // NEW: Model-specific settings based on role
@@ -441,15 +445,52 @@ class OllamaService {
 
       const modelSettings = getModelSpecificSettings(role);
 
-      const buildOllamaOptions = (overrides = {}) => ({
-        temperature: overrides.temperature ?? modelSettings.temperature,
-        top_p: generationOptions.top_p ?? 0.9,
-        num_ctx: overrides.num_ctx || modelSettings.num_ctx,
-        num_batch: generationOptions.num_batch,
-        num_thread: generationOptions.num_thread,
-        num_gpu: generationOptions.num_gpu,
-        ...overrides
-      });
+      // Warn if using llama3.2:3b for HTML or large chunks
+      if (role === 'rewrite' && modelToUse.includes('llama3.2:3b')) {
+        if (hasHtmlTags && textLength > 2000) {
+          console.warn('⚠️ WARNING: llama3.2:3b may fail with HTML content >2000 chars. Consider using llama3.1:8b');
+          Logger.logWarn('ollama', 'Small model used for HTML rewriting', {
+            model: modelToUse,
+            textLength,
+            hasHtml: true,
+            recommendation: 'Use llama3.1:8b for better results'
+          });
+        }
+      }
+
+      const buildOllamaOptions = (overrides = {}) => {
+        const baseOptions = {
+          temperature: overrides.temperature ?? modelSettings.temperature,
+          top_p: generationOptions.top_p ?? 0.9,
+          num_ctx: overrides.num_ctx || modelSettings.num_ctx,
+          num_batch: generationOptions.num_batch,
+          num_thread: generationOptions.num_thread,
+          num_gpu: generationOptions.num_gpu,
+          ...overrides
+        };
+        
+        // CRITICAL FIX: More aggressive parameters for HTML content rewriting
+        if (role === 'rewrite' && hasHtmlTags) {
+          baseOptions.temperature = 0.4;        // Increase from 0.3 for better completion
+          baseOptions.top_p = 0.98;             // Increase from 0.95 for broader sampling
+          baseOptions.repeat_penalty = 1.2;     // Increase from 1.15 for stronger anti-repetition
+          baseOptions.repeat_last_n = 512;      // Consider more context for repetition detection
+          baseOptions.num_predict = Math.max(   // Force longer generation
+            modelSettings.max_tokens || 4096,
+            Math.ceil(textLength * 1.5)         // Increase from 1.2 to 1.5 for safety margin
+          );
+          baseOptions.stop = [];                // Remove stop sequences that might trigger on HTML
+          baseOptions.tfs_z = 1.0;              // Tail free sampling
+          baseOptions.typical_p = 1.0;          // Typical probability mass
+          baseOptions.mirostat = 2;             // Mirostat sampling mode 2
+          baseOptions.mirostat_tau = 5.0;       // Target perplexity
+          baseOptions.mirostat_eta = 0.1;       // Learning rate
+          
+          console.log(`🔧 HTML-optimized parameters: temp=${baseOptions.temperature}, repeat_penalty=${baseOptions.repeat_penalty}, num_predict=${baseOptions.num_predict}`);
+        }
+        
+        return baseOptions;
+      };
 
       const callOllama = async (promptText, overrideOptions = {}, useStructuredOutput = true) => {
         const body = {
@@ -561,22 +602,63 @@ class OllamaService {
         enhancedText = this.sanitizeEnhancedText(enhancedText, targetLang);
       }
 
-      // If still invalid after retry, fail closed (keep original translation).
+      // If still invalid after retry, check if we should try continuation or fail
       const finalInvalidReason = this.getInvalidEnhancementReason(enhancedText, translatedText, role);
       if (finalInvalidReason) {
-        Logger.logInfo('ollama', 'LLM enhancement rejected', {
-          reason: finalInvalidReason,
-          role: role,
-          preview: enhancedText.slice(0, 240),
-          originalLength: translatedText.length,
-          enhancedLength: enhancedText.length,
-          fullOutput: enhancedText.length < 500 ? enhancedText : enhancedText.slice(0, 500) + '...'
-        });
-        return {
-          success: false,
-          error: `LLM output rejected: ${finalInvalidReason}`,
-          originalText: translatedText
-        };
+        // Special case: llama3.2:3b with HTML - try one more time with simplified prompt
+        if (role === 'rewrite' && modelToUse.includes('llama3.2:3b') && hasHtmlTags && !extra?.simplifiedRetry) {
+          console.warn('⚠️ llama3.2:3b failed with HTML. Trying simplified prompt...');
+          Logger.logWarn('ollama', 'Attempting simplified retry for small model', {
+            model: modelToUse,
+            originalReason: finalInvalidReason
+          });
+          
+          // Build ultra-simple prompt for small models
+          const simplifiedPrompt = `Fix these specific issues in the Brazilian Portuguese text below. Return the COMPLETE corrected text with ALL HTML tags preserved.\n\nIssues to fix:\n${extra?.analysisReport?.validationIssues?.map((issue, i) => `${i+1}. ${issue.description}`).join('\n') || 'Fix grammar and phrasing'}\n\nText:\n${translatedText}\n\nReturn complete text:`;
+          
+          try {
+            const simplifiedResult = await callOllama(simplifiedPrompt, { 
+              temperature: 0.3, 
+              top_p: 0.95,
+              repeat_penalty: 1.2
+            }, false);
+            
+            const sanitized = this.sanitizeEnhancedText(simplifiedResult, targetLang);
+            const simplifiedInvalidReason = this.getInvalidEnhancementReason(sanitized, translatedText, role);
+            
+            if (!simplifiedInvalidReason) {
+              console.log('✓ Simplified retry succeeded');
+              enhancedText = sanitized;
+            } else {
+              console.warn('⚠️ Simplified retry also failed:', simplifiedInvalidReason);
+              throw new Error('Simplified retry failed');
+            }
+          } catch (retryError) {
+            console.error('⚠️ Could not recover with simplified retry');
+            // Fall through to rejection below
+          }
+        }
+        
+        // Final check after potential retry
+        const veryFinalInvalidReason = this.getInvalidEnhancementReason(enhancedText, translatedText, role);
+        if (veryFinalInvalidReason) {
+          Logger.logInfo('ollama', 'LLM enhancement rejected', {
+            reason: veryFinalInvalidReason,
+            role: role,
+            model: modelToUse,
+            preview: enhancedText.slice(0, 240),
+            originalLength: translatedText.length,
+            enhancedLength: enhancedText.length,
+            fullOutput: enhancedText.length < 500 ? enhancedText : enhancedText.slice(0, 500) + '...',
+            recommendation: modelToUse.includes('llama3.2:3b') && hasHtmlTags ? 'Use llama3.1:8b for HTML content' : null
+          });
+          return {
+            success: false,
+            error: `LLM output rejected: ${veryFinalInvalidReason}`,
+            originalText: translatedText,
+            recommendation: modelToUse.includes('llama3.2:3b') && hasHtmlTags ? 'Switch to llama3.1:8b for better HTML handling' : null
+          };
+        }
       }
 
       // Enforce glossary after LLM (prevents the LLM from undoing glossary work).
@@ -651,9 +733,14 @@ class OllamaService {
       return false;
     }
 
+    // NEW: For HTML content, also check if we're mid-tag
+    if (/<[^>]+$/.test(text.trim())) {
+      return true;  // Incomplete HTML tag at end
+    }
+
     // Check if ends mid-sentence (no final punctuation)
     const lastChar = text.trim().slice(-1);
-    const hasProperEnding = ['.', '!', '?', ':', '"', "'", '"'].includes(lastChar);
+    const hasProperEnding = ['.', '!', '?', ':', '"', "'", '"', '>'].includes(lastChar);  // Added '>' for HTML tags
     
     if (!hasProperEnding) {
       return true;
@@ -719,8 +806,9 @@ Continue EXACTLY where the text stopped. Do NOT repeat any previous text. Just c
    * @private
    */
   buildEnhancementPrompt(text, sourceLang, targetLang, formality, improveStructure, verifyGlossary, glossaryTerms, extra = {}) {
-    // Detect if text contains HTML tags
-    const hasHtmlTags = /<[^>]+>/.test(text);
+    // Get HTML detection and text length from extra (passed from caller)
+    const hasHtmlTags = extra.hasHtmlTags ?? /<[^>]+>/.test(text);
+    const textLength = extra.textLength ?? text.length;
     
     // Map language codes to full names for better LLM understanding
     const languageNames = {
@@ -740,18 +828,42 @@ Continue EXACTLY where the text stopped. Do NOT repeat any previous text. Just c
     const targetLanguageName = languageNames[targetLang] || targetLang;
     const targetLower = String(targetLang || '').toLowerCase();
     
-    let prompt = `You are a professional translator and text editor. You are reviewing and enhancing a translation that has already been completed.\n\n`;
+    const role = extra?.role || 'rewrite';
     
-    prompt += `CONTEXT:\n`;
-    prompt += `- This text was translated from ${sourceLanguageName} to ${targetLanguageName} using an automated translation service\n`;
-    prompt += `- Your role is to REVIEW and IMPROVE the existing ${targetLanguageName} translation, not to translate from scratch\n`;
-    prompt += `- Focus on making the ${targetLanguageName} translation more natural, accurate, and appropriate for the target audience\n`;
-    prompt += `- IMPORTANT: The text below is ALREADY in ${targetLanguageName}. Do NOT translate it back to ${sourceLanguageName}!\n\n`;
-    prompt += `- CRITICAL: Output must be written entirely in ${targetLanguageName}. If any English remains, translate it into ${targetLanguageName}.\n`;
-    if (extra?.strictLanguage) {
-      prompt += `- STRICT MODE: Do not leave any English words except proper nouns. Rewrite any remaining English into ${targetLanguageName}.\n`;
+    // Role-specific system prompts (optimized for each model's purpose)
+    let prompt = '';
+    
+    if (role === 'validation') {
+      prompt = `You are a translation quality validator. Your task is to quickly identify issues in an already-translated text.\n\n`;
+      prompt += `CONTEXT:\n`;
+      prompt += `- Text was translated from ${sourceLanguageName} to ${targetLanguageName} by LibreTranslate\n`;
+      prompt += `- You only need to DETECT issues, not fix them (rewrite happens in next stage)\n`;
+      prompt += `- Be concise: report maximum 5 most critical issues\n\n`;
+    } else if (role === 'rewrite') {
+      prompt = `You are a professional translation editor. Your task is to fix specific issues in an already-translated text.\n\n`;
+      prompt += `CONTEXT:\n`;
+      prompt += `- Text was translated from ${sourceLanguageName} to ${targetLanguageName} by LibreTranslate\n`;
+      prompt += `- Validation found specific issues (listed below)\n`;
+      prompt += `- Fix ONLY the issues mentioned - don't over-edit\n`;
+      prompt += `- CRITICAL: Output must be entirely in ${targetLanguageName}\n\n`;
+    } else if (role === 'technical') {
+      prompt = `You are a technical translation reviewer. Your task is to verify accuracy and consistency.\n\n`;
+      prompt += `CONTEXT:\n`;
+      prompt += `- Text was translated and corrected, now needs final technical check\n`;
+      prompt += `- Focus on: terminology, numbers, formatting, proper nouns\n`;
+      prompt += `- CRITICAL: Output must be entirely in ${targetLanguageName}\n\n`;
+    } else {
+      // Fallback (legacy enhance mode - should rarely be used)
+      prompt = `You are a professional translator and text editor. You are reviewing and enhancing a translation.\n\n`;
+      prompt += `CONTEXT:\n`;
+      prompt += `- Text was translated from ${sourceLanguageName} to ${targetLanguageName}\n`;
+      prompt += `- Your role is to REVIEW and IMPROVE the translation\n`;
+      prompt += `- CRITICAL: Output must be entirely in ${targetLanguageName}\n\n`;
     }
-    prompt += `\n`;
+    
+    if (extra?.strictLanguage) {
+      prompt += `⚠️ STRICT MODE: Remove any English words except proper nouns. Rewrite into ${targetLanguageName}.\n\n`;
+    }
 
     // Portuguese (Brazil) consistency rules (fixes issues like "tua" vs "sua", "demasiado", agreement errors, etc.)
     if (targetLower === 'pt' || targetLower === 'pt-br' || targetLanguageName.toLowerCase().includes('brazilian portuguese')) {
@@ -808,209 +920,175 @@ Continue EXACTLY where the text stopped. Do NOT repeat any previous text. Just c
       prompt += `- Example: {\"text\":\"...\"}\n\n`;
     }
 
-    prompt += `YOUR REVIEW TASKS:\n`;
-
-    let taskNumber = 1;
-    const role = extra?.role || 'enhance';
+    prompt += `YOUR TASK:\n`;
 
     if (role === 'enhance') {
-      prompt += `${taskNumber}. TRANSLATION ENHANCEMENT:\n`;
-      prompt += `   - Review the entire translation and improve quality throughout\n`;
-      prompt += `   - Fix grammar errors, mistranslations, and awkward phrasing\n`;
-      prompt += `   - Maintain the complete length and structure of the original\n`;
-      prompt += `   - ⚠️ CRITICAL: You MUST return the COMPLETE enhanced translation from start to finish\n`;
-      prompt += `   - ⚠️ Do NOT summarize, truncate, or return only excerpts\n`;
-      prompt += `   - ⚠️ Process the ENTIRE text and return it ALL with improvements applied\n`;
-      taskNumber++;
+      // Legacy enhance mode (deprecated - use rewrite instead)
+      prompt += `Review the translation and improve quality:\n`;
+      prompt += `- Fix grammar errors, mistranslations, awkward phrasing\n`;
+      prompt += `- Return the COMPLETE enhanced translation from start to finish\n`;
+      prompt += `- Do NOT summarize or truncate\n\n`;
     } else if (role === 'validation') {
-      prompt += `${taskNumber}. TRANSLATION VALIDATION:\n`;
-      prompt += `   - Review this translation for quality and grammar\n`;
-      prompt += `   - Respond with EXACTLY:\n`;
-      prompt += `     • "OK" if translation is accurate and natural\n`;
-      prompt += `     • Otherwise, list SPECIFIC issues found (maximum 5 issues):\n`;
-      prompt += `       Format each issue as: [TYPE] Description\n`;
-      prompt += `       Types: [GENDER], [PLURAL], [WORD_ORDER], [MISTRANSLATION], [PHRASING]\n`;
-      prompt += `\n`;
+      // Optimized validation prompt (fast detection, ~200 tokens output)
+      prompt += `Quickly review this translation and respond:\n`;
+      prompt += `- Say "OK" if accurate and natural\n`;
+      prompt += `- OR list up to 5 critical issues using format: [TYPE] Brief description\n\n`;
       
-      // NEW: Language variant analysis for Portuguese
+      prompt += `Issue types to check:\n`;
+      prompt += `- [GENDER] / [PLURAL] - Agreement errors\n`;
+      prompt += `- [WORD_ORDER] - Unnatural phrasing\n`;
+      prompt += `- [MISTRANSLATION] - Meaning errors\n`;
+      
+      // Portuguese-specific checks
       if (targetLower === 'pt' || targetLower === 'pt-br' || targetLanguageName.toLowerCase().includes('brazilian portuguese')) {
-        prompt += `   - LANGUAGE VARIANT CHECK (CRITICAL):\n`;
-        prompt += `     • Verify if text uses Brazilian Portuguese (pt-BR) or European Portuguese (pt-PT)\n`;
-        prompt += `     • Flag as [VARIANT] if European Portuguese detected:\n`;
-        prompt += `       - "teu/tua" instead of "seu/sua" (possessives)\n`;
-        prompt += `       - "demasiado" instead of "demais/muito"\n`;
-        prompt += `       - European verb forms or vocabulary\n`;
-        prompt += `     • Expected: Brazilian Portuguese\n`;
-        prompt += `\n`;
+        prompt += `- [VARIANT] - European Portuguese detected (expected: Brazilian)\n`;
+        prompt += `  • Flag if: "teu/tua", "demasiado", "comboio", European vocabulary\n`;
       }
       
-      // NEW: Formality check
+      // Formality check
       const expectedFormality = formality || 'neutral';
-      const formalityDescriptions = {
-        'formal': 'formal and professional (você, senhor/senhora, formal pronouns)',
-        'informal': 'casual and conversational (everyday language, relaxed tone)',
-        'neutral': 'balanced and standard (neither too formal nor too casual)'
-      };
-      const expectedDesc = formalityDescriptions[expectedFormality] || 'appropriate';
-      
-      prompt += `   - FORMALITY CHECK:\n`;
-      prompt += `     • Expected formality level: ${expectedFormality.toUpperCase()} (${expectedDesc})\n`;
-      prompt += `     • Verify if text matches the expected formality\n`;
-      prompt += `     • Flag as [FORMALITY] if formality mismatch detected:\n`;
-      prompt += `       - Too formal when informal expected\n`;
-      prompt += `       - Too casual when formal expected\n`;
-      prompt += `       - Inconsistent formality within text\n`;
-      prompt += `\n`;
-      
-      prompt += `   - Example response with issues:\n`;
-      prompt += `     [GENDER] 'bons homens' but uses 'bom' (should be 'bons')\n`;
-      prompt += `     [VARIANT] Uses European Portuguese "demasiado" (should be "demais")\n`;
-      prompt += `     [FORMALITY] Text is too formal, expected informal tone\n`;
-      prompt += `     [PLURAL] Singular adjective with plural noun in line 3\n`;
-      prompt += `   - CRITICAL: Keep response SHORT (max 5 issues, ~50-75 words total)\n`;
-      prompt += `   - Do NOT rewrite the text, only report issues or say "OK"\n`;
-      taskNumber++;
-    } else if (role === 'rewrite') {
-      prompt += `${taskNumber}. NATURAL REWRITE:\n`;
-      
-      // NEW: Use validation issues if available
-      if (extra?.analysisReport?.validationIssues && extra.analysisReport.validationIssues.length > 0) {
-        prompt += `   - Fix the following SPECIFIC issues found in validation:\n`;
-        
-        let hasVariantIssues = false;
-        let hasFormalityIssues = false;
-        
-        extra.analysisReport.validationIssues.forEach((issue, idx) => {
-          prompt += `     ${idx + 1}. [${issue.type}] ${issue.description}\n`;
-          
-          if (issue.type.toUpperCase() === 'VARIANT') {
-            hasVariantIssues = true;
-          }
-          if (issue.type.toUpperCase() === 'FORMALITY') {
-            hasFormalityIssues = true;
-          }
-        });
-        prompt += `\n`;
-        
-        // NEW: Special instructions for variant issues
-        if (hasVariantIssues && (targetLower === 'pt' || targetLower === 'pt-br')) {
-          prompt += `   - CRITICAL: Convert ALL European Portuguese to Brazilian Portuguese:\n`;
-          prompt += `     • Change "teu/tua" → "seu/sua"\n`;
-          prompt += `     • Change "demasiado" → "demais" or "muito"\n`;
-          prompt += `     • Use Brazilian verb conjugations and vocabulary\n`;
-        }
-        
-        // NEW: Special instructions for formality issues
-        if (hasFormalityIssues) {
-          const expectedFormality = formality || 'neutral';
-          if (expectedFormality === 'formal') {
-            prompt += `   - Adjust to FORMAL tone:\n`;
-            prompt += `     • Use formal pronouns (você, senhor/senhora)\n`;
-            prompt += `     • Replace casual expressions with formal vocabulary\n`;
-          } else if (expectedFormality === 'informal') {
-            prompt += `   - Adjust to INFORMAL/CASUAL tone:\n`;
-            prompt += `     • Use conversational language\n`;
-            prompt += `     • Replace overly formal expressions with natural, everyday language\n`;
-          } else {
-            prompt += `   - Adjust to NEUTRAL tone:\n`;
-            prompt += `     • Balance formality - neither too formal nor too casual\n`;
-          }
-        }
-        
-        // Adjust temperature based on issue types
-        const hasGrammarOnly = extra.analysisReport.validationIssues.every(
-          issue => {
-            const type = issue.type.toUpperCase();
-            return type === 'GENDER' || type === 'PLURAL' || type === 'WORD_ORDER';
-          }
-        );
-        
-        if (hasGrammarOnly && !hasVariantIssues && !hasFormalityIssues) {
-          prompt += `   - These are GRAMMAR fixes only - make precise corrections with minimal changes\n`;
-          prompt += `   - For 1-2 issues: rewrite only affected sentences\n`;
-          prompt += `   - For 3+ issues or full text needed: return complete corrected text\n`;
-        } else {
-          prompt += `   - These issues include semantic/translation/style problems - rewrite for natural flow\n`;
-          if (hasVariantIssues || hasFormalityIssues) {
-            prompt += `   - IMPORTANT: Pay special attention to language variant and formality adjustments\n`;
-          }
-        }
+      prompt += `- [FORMALITY] - Tone mismatch (expected: ${expectedFormality})\n`;
+      if (expectedFormality === 'formal') {
+        prompt += `  • Flag if too casual (missing senhor/senhora, using slang)\n`;
+      } else if (expectedFormality === 'informal') {
+        prompt += `  • Flag if too formal (overly polite, stiff language)\n`;
       } else {
-        prompt += `   - Rewrite to sound natural and fluent in ${targetLanguageName}\n`;
-        prompt += `   - Keep meaning identical, improve flow and readability\n`;
+        prompt += `  • Flag if too formal OR too casual\n`;
       }
       
-      prompt += `   - Return the COMPLETE rewritten text from start to finish\n`;
-      taskNumber++;
+      prompt += `\nExample good response:\n`;
+      prompt += `[GENDER] "bom homens" should be "bons homens"\n`;
+      prompt += `[VARIANT] Uses "demasiado" (European), change to "demais"\n`;
+      prompt += `[FORMALITY] Too formal, expected neutral tone\n\n`;
+      
+      prompt += `⚠️ CRITICAL: Keep response under 75 words. Do NOT rewrite text.\n\n`;
+    } else if (role === 'rewrite') {
+      // CRITICAL FIX: Ultra-simple prompt for HTML content to prevent truncation
+      if (hasHtmlTags && textLength > 2000) {
+        prompt += `CRITICAL TASK: Rewrite this COMPLETE ${targetLanguageName} text with the following fixes:\n\n`;
+        
+        // Simplified issue list (max 2 most critical - fewer = better completion)
+        if (extra?.analysisReport?.validationIssues && extra.analysisReport.validationIssues.length > 0) {
+          const topIssues = extra.analysisReport.validationIssues.slice(0, 2);
+          topIssues.forEach((issue, idx) => {
+            prompt += `${idx + 1}. ${issue.description}\n`;
+          });
+          if (extra.analysisReport.validationIssues.length > 2) {
+            prompt += `(${extra.analysisReport.validationIssues.length - 2} other minor issues to address)\n`;
+          }
+          prompt += `\n`;
+        }
+        
+        prompt += `CRITICAL INSTRUCTIONS:\n`;
+        prompt += `1. Output the ENTIRE text from beginning to end\n`;
+        prompt += `2. Preserve ALL HTML tags exactly (<p>, <div>, <span>, etc.)\n`;
+        prompt += `3. Fix the issues mentioned above throughout the text\n`;
+        prompt += `4. Do NOT stop mid-sentence or mid-paragraph\n`;
+        prompt += `5. Continue until you've rewritten ALL the text\n\n`;
+        
+        prompt += `START YOUR COMPLETE REWRITE NOW:\n`;
+      } else {
+        // Original detailed prompt for non-HTML or shorter text
+        if (extra?.analysisReport?.validationIssues && extra.analysisReport.validationIssues.length > 0) {
+          prompt += `Fix these specific issues found by validator:\n\n`;
+          
+          let hasVariantIssues = false;
+          let hasFormalityIssues = false;
+          let hasGrammarOnly = true;
+          
+          extra.analysisReport.validationIssues.forEach((issue, idx) => {
+            prompt += `${idx + 1}. [${issue.type}] ${issue.description}\n`;
+            
+            const type = issue.type.toUpperCase();
+            if (type === 'VARIANT') hasVariantIssues = true;
+            if (type === 'FORMALITY') hasFormalityIssues = true;
+            if (!['GENDER', 'PLURAL', 'WORD_ORDER'].includes(type)) hasGrammarOnly = false;
+          });
+          prompt += `\n`;
+          
+          // Specific fix instructions based on issue types
+          if (hasVariantIssues && (targetLower === 'pt' || targetLower === 'pt-br')) {
+            prompt += `European → Brazilian Portuguese fixes:\n`;
+            prompt += `• "teu/tua" → "seu/sua"\n`;
+            prompt += `• "demasiado" → "demais" or "muito"\n`;
+            prompt += `• Use Brazilian vocabulary and verb forms\n\n`;
+          }
+          
+          if (hasFormalityIssues) {
+            const expectedFormality = formality || 'neutral';
+            if (expectedFormality === 'formal') {
+              prompt += `Adjust to FORMAL tone: Use senhor/senhora, formal pronouns, professional vocabulary\n\n`;
+            } else if (expectedFormality === 'informal') {
+              prompt += `Adjust to INFORMAL tone: Use casual language, conversational expressions\n\n`;
+            } else {
+              prompt += `Adjust to NEUTRAL tone: Balance between formal and casual\n\n`;
+            }
+          }
+          
+          // Rewrite strategy based on issue complexity
+          if (hasGrammarOnly && !hasVariantIssues && !hasFormalityIssues) {
+            prompt += `Strategy: Grammar fixes only - make precise, minimal changes\n`;
+            prompt += `Return complete corrected text maintaining original style\n\n`;
+          } else {
+            prompt += `Strategy: Semantic/style fixes - rewrite for natural flow\n`;
+            prompt += `Return complete text with issues resolved and natural phrasing\n\n`;
+          }
+        } else {
+          prompt += `Improve this translation:\n`;
+          prompt += `- Fix any grammar, phrasing, or naturalness issues\n`;
+          prompt += `- Keep meaning identical\n`;
+          prompt += `- Return complete rewritten text\n\n`;
+        }
+        
+        // Apply structure improvements if requested
+        if (improveStructure) {
+          prompt += `Additional improvements:\n`;
+          prompt += `- Fix number/gender agreement errors\n`;
+          prompt += `- Improve text flow and transitions\n`;
+          prompt += `- Ensure natural ${targetLanguageName} phrasing\n\n`;
+        }
+      }
     } else if (role === 'technical') {
-      prompt += `${taskNumber}. TECHNICAL REVIEW:\n`;
-      prompt += `   - Ensure technical terms, numbers, units, and names are accurate\n`;
-      prompt += `   - Fix any terminology inconsistencies or formatting issues\n`;
-      prompt += `   - Return the COMPLETE reviewed text\n`;
-      taskNumber++;
+      // Optimized technical check (final polish, ~2400 tokens output)
+      prompt += `Perform final technical review:\n`;
+      prompt += `- Verify technical terms and terminology consistency\n`;
+      prompt += `- Check numbers, units, measurements, dates are accurate\n`;
+      prompt += `- Ensure proper nouns and names are preserved correctly\n`;
+      prompt += `- Fix any formatting inconsistencies\n`;
+      prompt += `- Return complete reviewed text\n\n`;
+      
+      // Glossary verification (only in technical stage)
+      if (verifyGlossary && glossaryTerms && glossaryTerms.length > 0) {
+        prompt += `Glossary terms to verify:\n`;
+        glossaryTerms.slice(0, 10).forEach(term => {
+          prompt += `• "${term.source_term}" → "${term.target_term}"\n`;
+        });
+        if (glossaryTerms.length > 10) {
+          prompt += `... and ${glossaryTerms.length - 10} more terms\n`;
+        }
+        prompt += `\n`;
+      }
     }
     
-    // Formality adjustment
-    if (formality === 'formal') {
-      prompt += `${taskNumber}. FORMALITY ADJUSTMENT:\n`;
-      prompt += `   - Review the translation and adjust it to be more formal and professional\n`;
-      prompt += `   - Use formal pronouns (você, senhor/senhora for Portuguese, etc.)\n`;
-      prompt += `   - Replace casual expressions with formal vocabulary\n`;
-      prompt += `   - Maintain professional tone throughout\n`;
-      taskNumber++;
-    } else if (formality === 'informal') {
-      prompt += `${taskNumber}. FORMALITY ADJUSTMENT:\n`;
-      prompt += `   - Review the translation and make it more casual and conversational\n`;
-      prompt += `   - Use informal pronouns appropriate for the target language\n`;
-      prompt += `   - Replace overly formal expressions with natural, everyday language\n`;
-      prompt += `   - Make it sound like a friendly conversation\n`;
-      taskNumber++;
+    // NOTE: Formality and structure are now handled within role-specific prompts
+    // No need for separate tasks - they're integrated into validation + rewrite
+
+    // Final output requirements
+    if (role === 'validation') {
+      prompt += `⚠️ OUTPUT: Brief issue list OR "OK" (max 75 words)\n`;
     } else {
-      prompt += `${taskNumber}. TONE REVIEW:\n`;
-      prompt += `   - Maintain a neutral, balanced tone - neither too formal nor too casual\n`;
-      prompt += `   - Ensure the tone is appropriate for general audiences\n`;
-      taskNumber++;
-    }
-
-    // Structure improvements
-    if (improveStructure) {
-      prompt += `${taskNumber}. TEXT STRUCTURE AND FLOW:\n`;
-      prompt += `   - Review and improve text cohesion and coherence\n`;
-      prompt += `   - Ensure logical flow between sentences and paragraphs\n`;
-      prompt += `   - Add appropriate connectors and transitions where needed\n`;
-      prompt += `   - Fix any grammatical errors or awkward phrasing\n`;
-      prompt += `   - CRITICAL: Fix number/gender agreement errors (e.g., plural noun + singular adjective)\n`;
-      prompt += `   - Improve readability and make the language flow naturally\n`;
-      prompt += `   - Ensure the translation sounds natural in ${targetLanguageName}\n`;
-      taskNumber++;
-    }
-
-    // Glossary verification
-    if (verifyGlossary && glossaryTerms.length > 0) {
-      prompt += `${taskNumber}. GLOSSARY TERM VERIFICATION:\n`;
-      prompt += `   - Check that these technical terms are translated correctly:\n`;
-      for (const term of glossaryTerms) {
-        prompt += `     • "${term.source_term}" MUST be translated as "${term.target_term}"\n`;
+      if (hasHtmlTags) {
+        prompt += `\n⚠️ CRITICAL OUTPUT REQUIREMENTS:\n`;
+        prompt += `1. Return the COMPLETE text from beginning to end\n`;
+        prompt += `2. Length must be approximately ${textLength} characters (current input length)\n`;
+        prompt += `3. PRESERVE ALL HTML tags EXACTLY as they appear\n`;
+        prompt += `4. Do NOT stop mid-sentence, mid-paragraph, or mid-tag\n`;
+        prompt += `5. Do NOT add explanations, summaries, or comments\n`;
+        prompt += `6. Output ONLY the complete rewritten text\n\n`;
+        prompt += `BEGIN COMPLETE REWRITE:\n`;
+      } else {
+        prompt += `\n⚠️ OUTPUT: Complete ${role === 'technical' ? 'reviewed' : 'rewritten'} text from start to end (~${textLength} chars, no truncation, no explanations)\n`;
       }
-      prompt += `   - If any term is translated incorrectly, fix it to match the glossary\n`;
-      prompt += `   - Preserve the glossary terms exactly as specified\n`;
-      taskNumber++;
-    }
-
-    if (hasHtmlTags) {
-      prompt += `\n⚠️ CRITICAL REQUIREMENTS:\n`;
-      prompt += `1. Return ONLY the enhanced translation text - THE COMPLETE TEXT FROM START TO END\n`;
-      prompt += `2. Do NOT add any explanations, comments, summaries, or additional text\n`;
-      prompt += `3. Do NOT truncate or shorten the text - return it ALL\n`;
-      prompt += `4. PRESERVE ALL HTML tags EXACTLY as they appear (including <p>, <strong>, <em>, <br>, <span>, etc.)\n`;
-      prompt += `5. Do NOT remove, modify, or add any HTML tags\n`;
-      prompt += `6. Only improve the TEXT content between the tags, not the tags themselves\n`;
-    } else {
-      prompt += `\n⚠️ CRITICAL REQUIREMENTS:\n`;
-      prompt += `1. Return the COMPLETE enhanced translation from beginning to end\n`;
-      prompt += `2. Do NOT truncate, summarize, or return only excerpts\n`;
-      prompt += `3. Do NOT add explanations, comments, or additional formatting\n`;
-      prompt += `4. Return ONLY the full enhanced translation text\n`;
     }
 
     return prompt;
