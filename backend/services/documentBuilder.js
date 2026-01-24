@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import archiver from 'archiver';
 import { fileURLToPath } from 'url';
+import HtmlDecoder from '../utils/htmlDecoder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,29 +12,8 @@ class DocumentBuilder {
     // If chunks contain HTML, extract text; otherwise use as-is
     const processedChunks = chunks.map(chunk => {
       if (typeof chunk === 'string' && chunk.includes('<')) {
-        // Extract text from HTML, preserving line breaks and paragraph structure
-        let text = chunk
-          // Handle paragraph breaks
-          .replace(/<p[^>]*>/gi, '')
-          .replace(/<\/p>/gi, '\n\n')
-          // Handle line breaks
-          .replace(/<br\s*\/?>/gi, '\n')
-          .replace(/<br\s+class="calibre1"[^>]*\/?>/gi, '\n')
-          // Remove all HTML tags
-          .replace(/<[^>]+>/g, '')
-          // Decode HTML entities
-          .replace(/&nbsp;/g, ' ')
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/&apos;/g, "'")
-          // Clean up excessive whitespace
-          .replace(/\n\s*\n\s*\n+/g, '\n\n')
-          .trim();
-        
-        return text;
+        // Use HtmlDecoder to properly decode all entities and strip HTML
+        return HtmlDecoder.decodeAndStripHtml(chunk);
       }
       return chunk;
     });
@@ -52,28 +32,8 @@ class DocumentBuilder {
       // Convert HTML to DOCX paragraphs - preserve basic formatting
       bodyContent = chunks.map(chunk => {
         if (typeof chunk === 'string' && chunk.includes('<')) {
-          // Simple HTML to DOCX conversion - extract text from paragraphs
-          // Preserve basic formatting structure
-          let text = chunk
-            // Handle paragraph breaks
-            .replace(/<p[^>]*>/gi, '')
-            .replace(/<\/p>/gi, '\n\n')
-            // Handle line breaks
-            .replace(/<br\s*\/?>/gi, '\n')
-            .replace(/<br\s+class="calibre1"[^>]*\/?>/gi, '\n')
-            // Remove all HTML tags (DOCX will handle formatting via XML)
-            .replace(/<[^>]+>/g, '')
-            // Decode HTML entities
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/&apos;/g, "'")
-            // Clean up whitespace
-            .replace(/\n\s*\n\s*\n+/g, '\n\n')
-            .trim();
+          // Use HtmlDecoder for proper entity decoding
+          let text = HtmlDecoder.decodeAndStripHtml(chunk);
           
           // Split into paragraphs for proper DOCX formatting
           const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
@@ -236,16 +196,13 @@ class DocumentBuilder {
             .replace(/<br\s*\/?>/gi, '\n')
             .replace(/<br\s+class="calibre1"[^>]*\/?>/gi, '\n')
             // Remove all other HTML tags except basic formatting
-            .replace(/<(?!\/?(?:em|i|strong|b)\b)[^>]+>/g, '')
-            // Decode HTML entities
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/&apos;/g, "'")
-            // Clean up whitespace but preserve paragraph breaks
+            .replace(/<(?!\/?(?:em|i|strong|b)\b)[^>]+>/g, '');
+          
+          // Decode HTML entities before processing paragraphs
+          text = HtmlDecoder.decode(text);
+          
+          // Clean up whitespace but preserve paragraph breaks
+          text = text
             .replace(/\n\s*\n\s*\n+/g, '\n\n')
             .trim();
           
@@ -278,7 +235,7 @@ class DocumentBuilder {
             })
             .filter(p => p !== null);
           
-          return paragraphs.join('\n  ') || `<p>${this.escapeXml(chunk.replace(/<[^>]+>/g, ''))}</p>`;
+          return paragraphs.join('\n  ') || `<p>${this.escapeXml(HtmlDecoder.decode(chunk.replace(/<[^>]+>/g, '')))}</p>`;
         } else {
           // Plain text - escape and wrap in paragraph
           return `<p>${this.escapeXml(chunk)}</p>`;

@@ -3,6 +3,8 @@ import axios from 'axios';
 import { t } from '../utils/i18n.js';
 import ConfirmModal from './ConfirmModal.jsx';
 import NotificationModal from './NotificationModal.jsx';
+import ChunkModal from './ChunkModal.jsx';
+import DocumentPreviewModal from './DocumentPreviewModal.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -49,6 +51,14 @@ function HistoryTab({ settings, onTranslationReady }) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [processingStats, setProcessingStats] = useState({}); // Track processing stats per job
   const [chunkErrors, setChunkErrors] = useState({}); // Track errors per job
+  
+  // Chunk modal states
+  const [showChunkModal, setShowChunkModal] = useState(false);
+  const [selectedChunkForModal, setSelectedChunkForModal] = useState(null);
+  
+  // Document preview modal states
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewJob, setPreviewJob] = useState(null);
 
   useEffect(() => {
     loadJobs();
@@ -707,6 +717,15 @@ function HistoryTab({ settings, onTranslationReady }) {
     };
   };
 
+  const handleChunkUpdated = async () => {
+    // Reload chunks for the job containing this chunk
+    if (expandedJob) {
+      await loadJobChunks(expandedJob);
+    }
+    // Also reload jobs to update progress
+    await loadJobs();
+  };
+
   const canGenerateDocument = (job) => {
     return job.completed_chunks === job.total_chunks && job.failed_chunks === 0;
   };
@@ -845,24 +864,50 @@ function HistoryTab({ settings, onTranslationReady }) {
 
                   {/* Partial document download - show when there are completed chunks but not all are done */}
                   {job.completed_chunks > 0 && job.completed_chunks < job.total_chunks && (
-                    <button 
-                      onClick={() => handleGeneratePartialDocument(job.id)}
-                      className="btn-small btn-info"
-                      disabled={generatingDocument === job.id}
-                      title={t('downloadPartial') || `Download partial document (${job.completed_chunks}/${job.total_chunks} chunks completed)`}
-                    >
-                      {generatingDocument === job.id ? `⏳ ${t('generating')}` : `📄 ${t('downloadPartial') || 'Download Partial'} (${job.completed_chunks}/${job.total_chunks})`}
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => handleGeneratePartialDocument(job.id)}
+                        className="btn-small btn-info"
+                        disabled={generatingDocument === job.id}
+                        title={t('downloadPartial') || `Download partial document (${job.completed_chunks}/${job.total_chunks} chunks completed)`}
+                      >
+                        {generatingDocument === job.id ? `⏳ ${t('generating')}` : `📄 ${t('downloadPartial') || 'Download Partial'} (${job.completed_chunks}/${job.total_chunks})`}
+                      </button>
+                      
+                      <button 
+                        onClick={() => {
+                          setPreviewJob(job);
+                          setShowPreviewModal(true);
+                        }}
+                        className="btn-small btn-secondary"
+                        title="Preview partial document"
+                      >
+                        👁️ Preview
+                      </button>
+                    </>
                   )}
 
                   {job.status === 'completed' && (
-                    <button 
-                      onClick={() => handleDownload(job.id)}
-                      className="btn-small btn-success"
-                      title={t('download')}
-                    >
-                      ⬇️ {t('download')}
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => handleDownload(job.id)}
+                        className="btn-small btn-success"
+                        title={t('download')}
+                      >
+                        ⬇️ {t('download')}
+                      </button>
+                      
+                      <button 
+                        onClick={() => {
+                          setPreviewJob(job);
+                          setShowPreviewModal(true);
+                        }}
+                        className="btn-small btn-secondary"
+                        title="Preview document"
+                      >
+                        👁️ Preview
+                      </button>
+                    </>
                   )}
 
                   {(job.status === 'failed' || job.status === 'partial') && (
@@ -1039,8 +1084,13 @@ function HistoryTab({ settings, onTranslationReady }) {
                       ).map(chunk => (
                         <div 
                           key={chunk.id} 
-                          className="chunk-item"
+                          className="chunk-item chunk-item-clickable"
                           style={{ borderLeftColor: getChunkStatusColor(chunk.status) }}
+                          onClick={() => {
+                            setSelectedChunkForModal([chunk]);
+                            setShowChunkModal(true);
+                          }}
+                          title="Click to view details and edit"
                         >
                           <div className="chunk-header">
                             <span 
@@ -1412,6 +1462,31 @@ function HistoryTab({ settings, onTranslationReady }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Chunk Details Modal */}
+      {showChunkModal && selectedChunkForModal && (
+        <ChunkModal
+          chunks={selectedChunkForModal}
+          onClose={() => {
+            setShowChunkModal(false);
+            setSelectedChunkForModal(null);
+          }}
+          onChunkUpdated={handleChunkUpdated}
+        />
+      )}
+
+      {/* Document Preview Modal */}
+      {showPreviewModal && previewJob && (
+        <DocumentPreviewModal
+          jobId={previewJob.id}
+          filename={previewJob.filename}
+          format={previewJob.output_format}
+          onClose={() => {
+            setShowPreviewModal(false);
+            setPreviewJob(null);
+          }}
+        />
       )}
 
       {/* Retry Modal */}

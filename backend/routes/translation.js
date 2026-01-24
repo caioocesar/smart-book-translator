@@ -1057,6 +1057,43 @@ router.get('/chunks/:jobId', async (req, res) => {
   }
 });
 
+// Update a chunk's translation (for manual editing)
+router.put('/chunk/:chunkId', async (req, res) => {
+  try {
+    const { chunkId } = req.params;
+    const { translated_text, translated_html } = req.body;
+    
+    if (!translated_text) {
+      return res.status(400).json({ error: 'translated_text is required' });
+    }
+    
+    // Get the chunk to verify it exists
+    const stmt = db.prepare('SELECT * FROM translation_chunks WHERE id = ?');
+    const chunk = stmt.get(chunkId);
+    
+    if (!chunk) {
+      return res.status(404).json({ error: 'Chunk not found' });
+    }
+    
+    // Update the chunk
+    TranslationChunk.updateTranslation(
+      chunkId,
+      translated_text,
+      'completed', // Mark as completed when manually edited
+      translated_html || null
+    );
+    
+    res.json({ 
+      message: 'Chunk updated successfully',
+      chunkId,
+      updated: true
+    });
+  } catch (error) {
+    console.error('Error updating chunk:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Schedule retry for failed chunks when limits reset (e.g., next day)
 router.post('/schedule-retry/:jobId', async (req, res) => {
   try {
@@ -1256,6 +1293,15 @@ router.get('/download-partial/:jobId', async (req, res) => {
     // Generate document if it doesn't exist (file system operation only, doesn't affect translation)
     if (!fs.existsSync(outputPath)) {
       await DocumentBuilder.build(translatedChunks, job.output_format, outputPath);
+    }
+
+    // Set appropriate headers for EPUB files (needed for epub.js)
+    if (job.output_format === 'epub') {
+      res.setHeader('Content-Type', 'application/epub+zip');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET');
+      res.setHeader('Access-Control-Allow-Headers', 'Range');
+      res.setHeader('Accept-Ranges', 'bytes');
     }
 
     // Serve the file (read-only operation)

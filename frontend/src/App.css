@@ -1926,7 +1926,16 @@
   border-radius: 8px;
   border-left: 4px solid #667eea;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  transition: transform 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.chunk-item-clickable {
+  cursor: pointer;
+}
+
+.chunk-item-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
 .chunk-item:hover {

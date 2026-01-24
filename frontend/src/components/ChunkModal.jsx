@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import axios from 'axios';
 import '../styles/ChunkModal.css';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 /**
  * ChunkModal - Detailed preview of translation chunks
@@ -9,15 +12,69 @@ import '../styles/ChunkModal.css';
  * - Chunk metadata (status, timestamps, token count)
  * - Error information if failed
  * - LLM processing details
+ * - Edit capability for completed chunks
  */
-function ChunkModal({ chunks, onClose }) {
+function ChunkModal({ chunks, onClose, onChunkUpdated }) {
   const [selectedChunkIndex, setSelectedChunkIndex] = useState(0);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedText, setEditedText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   if (!chunks || chunks.length === 0) {
     return null;
   }
 
   const selectedChunk = chunks[selectedChunkIndex];
+  const canEdit = selectedChunk.status === 'completed' && (selectedChunk.translated_text || selectedChunk.translated_html);
+
+  const handleStartEdit = () => {
+    const textToEdit = selectedChunk.translated_html || selectedChunk.translated_text;
+    // Strip HTML tags for editing
+    const cleanText = textToEdit.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
+    setEditedText(cleanText);
+    setIsEditing(true);
+    setSaveError('');
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedText('');
+    setSaveError('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editedText.trim()) {
+      setSaveError('Translation cannot be empty');
+      return;
+    }
+
+    setSaving(true);
+    setSaveError('');
+
+    try {
+      await axios.put(`${API_URL}/api/translation/chunk/${selectedChunk.id}`, {
+        translated_text: editedText,
+        translated_html: null // Clear HTML when manually editing
+      });
+
+      // Update the chunk in memory
+      chunks[selectedChunkIndex].translated_text = editedText;
+      chunks[selectedChunkIndex].translated_html = null;
+
+      setIsEditing(false);
+      setEditedText('');
+
+      // Notify parent to refresh if callback provided
+      if (onChunkUpdated) {
+        onChunkUpdated(selectedChunk.id);
+      }
+    } catch (error) {
+      setSaveError(error.response?.data?.error || 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const getStatusColor = (status) => {
     const colors = {
@@ -265,33 +322,76 @@ function ChunkModal({ chunks, onClose }) {
           {/* Translated Text */}
           {(selectedChunk.translated_text || selectedChunk.translated_html) && (
             <div className="chunk-text-section">
-              <h3>🌐 Translated Text</h3>
-              <div className="text-preview translated">
-                {(() => {
-                  const text = selectedChunk.translated_html || selectedChunk.translated_text;
-                  if (text.length > 500) {
-                    return (
-                      <details>
-                        <summary>
-                          {truncateText(text, 500)}
-                          <span className="read-more"> (click to read full text)</span>
-                        </summary>
-                        <div className="full-text">
-                          <div dangerouslySetInnerHTML={{ __html: text }} />
-                        </div>
-                      </details>
-                    );
-                  } else {
-                    return <div dangerouslySetInnerHTML={{ __html: text }} />;
-                  }
-                })()}
+              <div className="section-header-with-actions">
+                <h3>🌐 Translated Text</h3>
+                {canEdit && !isEditing && (
+                  <button className="btn-edit" onClick={handleStartEdit}>
+                    ✏️ Edit
+                  </button>
+                )}
               </div>
-              <div className="text-stats">
-                <small>
-                  {(selectedChunk.translated_html || selectedChunk.translated_text).length.toLocaleString()} characters
-                  {(selectedChunk.translated_html || selectedChunk.translated_text).includes('<') && ' (HTML)'}
-                </small>
-              </div>
+
+              {isEditing ? (
+                <div className="edit-section">
+                  <textarea
+                    className="edit-textarea"
+                    value={editedText}
+                    onChange={(e) => setEditedText(e.target.value)}
+                    rows={15}
+                    placeholder="Enter translated text..."
+                  />
+                  {saveError && (
+                    <div className="error-message" style={{ marginTop: '8px', fontSize: '0.9em' }}>
+                      {saveError}
+                    </div>
+                  )}
+                  <div className="edit-actions">
+                    <button 
+                      className="btn-secondary" 
+                      onClick={handleCancelEdit}
+                      disabled={saving}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className="btn-primary" 
+                      onClick={handleSaveEdit}
+                      disabled={saving || !editedText.trim()}
+                    >
+                      {saving ? '⏳ Saving...' : '💾 Save Changes'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-preview translated">
+                    {(() => {
+                      const text = selectedChunk.translated_html || selectedChunk.translated_text;
+                      if (text.length > 500) {
+                        return (
+                          <details>
+                            <summary>
+                              {truncateText(text, 500)}
+                              <span className="read-more"> (click to read full text)</span>
+                            </summary>
+                            <div className="full-text">
+                              <div dangerouslySetInnerHTML={{ __html: text }} />
+                            </div>
+                          </details>
+                        );
+                      } else {
+                        return <div dangerouslySetInnerHTML={{ __html: text }} />;
+                      }
+                    })()}
+                  </div>
+                  <div className="text-stats">
+                    <small>
+                      {(selectedChunk.translated_html || selectedChunk.translated_text).length.toLocaleString()} characters
+                      {(selectedChunk.translated_html || selectedChunk.translated_text).includes('<') && ' (HTML)'}
+                    </small>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

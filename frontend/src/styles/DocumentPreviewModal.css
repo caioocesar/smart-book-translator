@@ -1,0 +1,211 @@
+/* Document Preview Modal Styles */
+
+.document-preview-modal {
+  max-width: 95vw;
+  max-height: 95vh;
+  width: 1200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.document-preview-modal .modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.preview-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.preview-filename {
+  font-weight: 600;
+  color: #495057;
+  font-size: 1.1em;
+}
+
+.preview-format {
+  background: #007bff;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #6c757d;
+}
+
+.preview-loading .spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.preview-error {
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.preview-error p {
+  color: #dc3545;
+  font-size: 1.1em;
+}
+
+.preview-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pdf-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  border: none;
+  background: #f8f9fa;
+}
+
+.epub-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  background: white;
+}
+
+.epub-preview > div {
+  height: 100%;
+}
+
+.preview-info-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  text-align: center;
+}
+
+.info-icon {
+  font-size: 4em;
+  margin-bottom: 20px;
+}
+
+.preview-info-message p {
+  font-size: 1.1em;
+  color: #495057;
+  margin: 10px 0;
+  max-width: 500px;
+}
+
+.preview-info-message .help-text {
+  font-size: 0.95em;
+  color: #6c757d;
+  margin-top: 20px;
+}
+
+/* Text preview for non-PDF formats */
+.text-preview-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px;
+  background: white;
+}
+
+.text-preview-content {
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.8;
+  color: #212529;
+  font-size: 1.05em;
+}
+
+.text-preview-content p {
+  margin: 1.2em 0;
+  text-align: justify;
+}
+
+.text-preview-content h1,
+.text-preview-content h2,
+.text-preview-content h3 {
+  margin-top: 2em;
+  margin-bottom: 0.8em;
+  color: #495057;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .document-preview-modal {
+    max-width: 100vw;
+    max-height: 100vh;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .pdf-preview {
+    min-height: 400px;
+  }
+
+  .epub-preview {
+    min-height: 400px;
+  }
+
+  .preview-info {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .preview-info-message {
+    padding: 40px 20px;
+  }
+
+  .info-icon {
+    font-size: 3em;
+  }
+}
+
+/* Scrollbar styling */
+.text-preview-container::-webkit-scrollbar {
+  width: 10px;
+}
+
+.text-preview-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.text-preview-container::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 5px;
+}
+
+.text-preview-container::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
