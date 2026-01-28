@@ -1,4 +1,10 @@
-# 📚 Smart Book Translator
+
+# CatScribe Translate — Prototype
+
+This repository contains an early prototype created for research and learning.
+
+✅ A commercial-grade rewrite is currently in development in a private repository.
+Status: archived / no active development.
 
 A powerful desktop application for translating documents (EPUB, DOCX, PDF) using AI translation services like DeepL and OpenAI. Features include intelligent document splitting, glossary management, progress tracking, and automatic retry on failures.
 
